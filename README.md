@@ -1,0 +1,1 @@
+# Video-Event-Retrieval-AI-Challenge-2025
