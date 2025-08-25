@@ -122,7 +122,239 @@ body {
   color: #fff;
   font-size: 14px;
   text-align: center;
+}
+
+.search-mode-section {
+  margin-top: 15px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.search-mode-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.search-mode-select {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #171717;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.search-mode-select:focus {
   outline: none;
+  border-color: #cbb3f9;
+  box-shadow: 0 0 0 2px rgba(203, 179, 249, 0.2);
+}
+
+/* CSV Export Section */
+.csv-export-section {
+  margin-top: 15px;
+  padding: 15px;
+  border-radius: 10px;
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.csv-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #4caf50;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.csv-filename-input {
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  background: #171717;
+  color: #fff;
+  font-size: 14px;
+}
+
+.csv-filename-input:focus {
+  outline: none;
+  border-color: #4caf50;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+.csv-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.selection-info {
+  color: #4caf50;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.csv-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.csv-btn {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.csv-btn.select-all {
+  background: #2196f3;
+  color: white;
+}
+
+.csv-btn.clear-all {
+  background: #f44336;
+  color: white;
+}
+
+.csv-btn.download {
+  background: #4caf50;
+  color: white;
+  flex-grow: 1;
+}
+
+.csv-btn:hover:not(:disabled) {
+  opacity: 0.8;
+  transform: translateY(-1px);
+}
+
+.csv-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Card Selection Styles */
+.card {
+  position: relative;
+  transition: all 0.2s;
+}
+
+.card.selected {
+  border-color: #4caf50;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
+  background: rgba(76, 175, 80, 0.05);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px 8px 0 0;
+}
+
+.card-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #4caf50;
+}
+
+.card-number {
+  color: #ccc;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.card-caption {
+  margin: 8px 0 0 0;
+  padding: 0 8px 8px 8px;
+}
+
+.url-section {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.url-label {
+  display: block;
+  margin-bottom: 10px;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.url-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #171717;
+  color: #fff;
+  font-size: 13px;
+  outline: none;
+  margin-top: 5px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.url-input:focus {
+  border-color: #7b5cff;
+  box-shadow: 0 0 8px rgba(123, 92, 255, 0.3);
+}
+
+.url-input::placeholder {
+  color: #888;
+  font-size: 12px;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.connection-status.connected {
+  color: #4ade80;
+}
+
+.connection-status.disconnected {
+  color: #f87171;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.connection-status.connected .status-dot {
+  background-color: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.6);
+}
+
+.connection-status.disconnected .status-dot {
+  background-color: #f87171;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.6);
 }
 
 

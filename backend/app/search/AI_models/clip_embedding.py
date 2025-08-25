@@ -2,7 +2,7 @@ from pydantic import PrivateAttr
 from llama_index.core.embeddings import BaseEmbedding
 from typing import List
 import torch
-from open_clip import create_model_from_pretrained, get_tokenizer
+import open_clip
 
 class CLIPEmbedding(BaseEmbedding):
     _model = PrivateAttr()
@@ -10,12 +10,16 @@ class CLIPEmbedding(BaseEmbedding):
     _tokenizer = PrivateAttr()
     _device = PrivateAttr()
 
-    def __init__(self, model_name: str = "hf-hub:apple/DFN2B-CLIP-ViT-B-16", device: str = "cpu"):
+    def __init__(self, device: str = "cpu"):
         super().__init__()
         self._device = device
-        self._model, self._preprocess = create_model_from_pretrained(model_name)
-        self._tokenizer = get_tokenizer("ViT-B-16")
-        self._model = self._model.to(self._device).eval()
+        self._model, _, self._preprocess = open_clip.create_model_and_transforms(
+            model_name='ViT-H-14-quickgelu',
+            pretrained='dfn5b',
+            device=self._device
+        )
+        self._tokenizer = open_clip.get_tokenizer('ViT-H-14-quickgelu')
+        self._model = self._model.eval()
 
     def _encode_text(self, text: str) -> List[float]:
         tokens = self._tokenizer([text]).to(self._device)

@@ -10,12 +10,12 @@ import heapq
 # model_name = "BAAI/bge-m3"
 # model_name = "AITeamVN/Vietnamese_Embedding"
 # model_name = "AITeamVN/Vietnamese_Reranker"
-bge_embed_model = BGEEmbedding(model_name="BAAI/bge-small-en", device=DEVICE)
-bge_vector_store = QdrantVectorStore(client=qdrant_client, collection_name="MSVD")
+bge_embed_model = BGEEmbedding("BAAI/bge-m3", device=DEVICE)
+bge_vector_store = QdrantVectorStore(client=qdrant_client, collection_name="Caption")
 bge_index = VectorStoreIndex.from_vector_store(vector_store=bge_vector_store, embed_model=bge_embed_model)
 
 clip_embed_model = CLIPEmbedding(device=DEVICE)
-clip_vector_store = QdrantVectorStore(client=qdrant_client, collection_name="image")
+clip_vector_store = QdrantVectorStore(client=qdrant_client, collection_name="Image")
 clip_index = VectorStoreIndex.from_vector_store(vector_store=clip_vector_store, embed_model=clip_embed_model)
 
 translator = Translator(device=DEVICE)
