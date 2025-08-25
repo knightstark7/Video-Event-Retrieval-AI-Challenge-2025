@@ -6,7 +6,7 @@ Multimodal search system for video content using CLIP and Vietnamese text embedd
 
 ### 1. Setup Backend on Kaggle
 1. Upload `videoframeretrievalsystem.ipynb` to [Kaggle](https://www.kaggle.com/code)
-2. Set accelerator to **GPU** and enable internet
+2. Set accelerator to **GPU**
 3. Run all cells sequentially
 4. Copy the ngrok URL: `https://xxxxx.ngrok-free.app`
 
@@ -52,7 +52,7 @@ POST /search
 
 ## 🎯 Search Modes
 
-- **Hybrid**: CLIP + Vintern (recommended)
+- **Hybrid**: CLIP + Vintern
 - **CLIP**: Visual similarity only
 - **Vintern**: Vietnamese text only
 
@@ -94,12 +94,6 @@ keyframes/
 ```
 
 **Without keyframes:** Images will show "Image Not Found" placeholder.
-
-## 🚨 Troubleshooting
-
-- **Models slow**: First run downloads large models
-- **Search failed**: Check backend URL
-- **Images not loading**: Verify keyframes in `public/keyframes/`
 
 ## 👥 Team: Tralalero Tralala
 Trần Nguyên Huân • Trần Hải Phát • Nguyễn Bảo Tuấn • Nguyễn Phát Đạt • Doãn Anh Khoa
