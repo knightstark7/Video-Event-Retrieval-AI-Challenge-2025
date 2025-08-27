@@ -30,7 +30,6 @@ body {
   cursor: default;
 }
 
-
 .sidebar {
   width: 280px;
   background-color: #1f1f1f;
@@ -375,7 +374,6 @@ body {
   font-size: 14px;
 }
 
-
 .settings-title {
   background-color: #cbb3f9;
   border-radius: 8px;
@@ -470,8 +468,11 @@ body {
 }
 
 .csv-filename-input {
-  width: 100%;
-  padding: 8px 12px;
+  width: 90%;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  /* padding-right: 5px; */
+  padding-left: 10px;
   margin-bottom: 10px;
   border-radius: 8px;
   border: 1px solid rgba(76, 175, 80, 0.3);
@@ -642,7 +643,7 @@ body {
 }
 
 .url-input {
-  width: 100%;
+  width: 90%;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -698,7 +699,6 @@ body {
   box-shadow: 0 0 6px rgba(248, 113, 113, 0.6);
 }
 
-
 .main-content {
   flex: 1;
   padding: 15px 20px;
@@ -711,7 +711,6 @@ body {
   width: 1120px;
   padding: 10px;
   box-sizing: border-box;
-
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -851,7 +850,6 @@ body {
   padding: 0;
   cursor: pointer;
   font-size: 18px;
-
   display: flex;
   align-items: center;
   justify-content: center;
@@ -911,8 +909,8 @@ body {
 }
 
 .preview-image {
-  width: 120px;
-  height: 80px;
+  width: 100%;
+  /* height: auto; */
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid #444;
@@ -975,4 +973,37 @@ body {
   color: #666;
   font-size: 14px;
   font-style: italic;
+}
+
+.image-drop-area {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 15px;
+  text-align: center;
+  background-color: #171717;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.image-drop-area:hover {
+  border-color: #cbb3f9;
+  box-shadow: 0 0 8px rgba(203, 179, 249, 0.3);
+}
+
+.select-image-btn {
+  margin-top: 10px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.select-image-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
