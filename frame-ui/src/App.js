@@ -323,7 +323,7 @@ function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `trake_${csvFileName || 'event_sequences'}.csv`;
+      link.download = `${csvFileName || 'trake_event_sequences'}.csv`;
       link.click();
       window.URL.revokeObjectURL(url);
       return;
@@ -358,8 +358,8 @@ function App() {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const modePrefix = appMode === "qa" ? "qa_" : "textual_kis_";
-    link.download = `${modePrefix}${csvFileName || 'selected_results'}.csv`;
+    const defaultName = appMode === "qa" ? "qa_selected_results" : "textual_kis_selected_results";
+    link.download = `${csvFileName || defaultName}.csv`;
     link.click();
     window.URL.revokeObjectURL(url);
   };
