@@ -23,6 +23,8 @@ function App() {
   const [searchMode, setSearchMode] = useState("hybrid");
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [csvFileName, setCsvFileName] = useState("selected_results");
+  const [loadingVideo, setLoadingVideo] = useState(null);
+  const [videoPlayer, setVideoPlayer] = useState(null); // { videoId, timestamp, title }
   const pageSize = 8;
   
   async function fetchSearchResults(query) {
@@ -55,7 +57,6 @@ function App() {
     }
   }
 
-  // Handle item selection
   const toggleItemSelection = (videoId) => {
     const newSelection = new Set(selectedItems);
     if (newSelection.has(videoId)) {
@@ -78,31 +79,76 @@ function App() {
     setSelectedItems(new Set());
   };
 
-  // Generate and download CSV
+  const handleKeyframeClick = async (videoId) => {
+    setLoadingVideo(videoId);
+    try {
+      const parts = videoId.split('_');
+      if (parts.length < 3) {
+        alert('Invalid video ID format');
+        return;
+      }
+      
+      const batch = parts[0];
+      const videoNum = parts[1];
+      const keyframeOrder = parseInt(parts[2]);
+      const videoFile = `${batch}_${videoNum}`;
+      
+      const mediaInfoPath = `/media-info-aic25-b1/media-info/${videoFile}.json`;
+      const response = await fetch(mediaInfoPath);
+      if (!response.ok) {
+        throw new Error(`Could not load video info for ${videoFile}`);
+      }
+      
+      const videoInfo = await response.json();
+      const youtubeUrl = videoInfo.watch_url;
+      const videoDuration = videoInfo.length;
+      const videoFPS = videoInfo.fps || 25;
+      
+      let finalTimestamp = Math.floor(keyframeOrder / videoFPS);
+      console.log(`${videoFile}: ${videoFPS} FPS - keyframe ${keyframeOrder} → ${finalTimestamp}s (${Math.floor(finalTimestamp/60)}:${String(finalTimestamp%60).padStart(2,'0')})`);
+      finalTimestamp = Math.max(0, Math.min(finalTimestamp, videoDuration - 1));
+      
+      const videoIdMatch = youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/);
+      const youtubeVideoId = videoIdMatch ? videoIdMatch[1] : null;
+      
+      if (youtubeVideoId) {
+        setVideoPlayer({
+          videoId: youtubeVideoId,
+          timestamp: finalTimestamp,
+          title: videoInfo.title || `Video ${videoFile}`,
+          keyframe: videoId
+        });
+      } else {
+        throw new Error('Could not extract YouTube video ID');
+      }
+      
+    } catch (error) {
+      console.error('Error opening video:', error);
+      alert(`Error opening video: ${error.message}`);
+    } finally {
+      setLoadingVideo(null);
+    }
+  };
+
   const downloadCSV = () => {
     if (selectedItems.size === 0) {
       alert("Please select at least one item to download.");
       return;
     }
 
-    // Convert selected items to CSV format
     const csvData = [];
     selectedItems.forEach(videoId => {
-      // Parse videoId like "L00_V0035_021664" -> video: "L00_V0035.mp4", frame: "021664"
       const parts = videoId.split('_');
       if (parts.length >= 3) {
-        const batch = parts[0]; // L00
-        const videoNum = parts[1]; // V0035
-        const frameNum = parts[2]; // 021664
+        const batch = parts[0];
+        const videoNum = parts[1];
+        const frameNum = parts[2];
         const videoFile = `${batch}_${videoNum}.mp4`;
         csvData.push(`${videoFile},${frameNum}`);
       }
     });
 
-    // Create CSV content
     const csvContent = csvData.join('\n');
-    
-    // Create and download file
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -116,13 +162,13 @@ function App() {
     if (!query.trim()) {
       setResults([]);
       setSearchTime(null);
-      setSelectedItems(new Set()); // Clear selections on new search
+      setSelectedItems(new Set());
       return;
     }
     
     setIsSearching(true);
     setSearchTime(null);
-    setSelectedItems(new Set()); // Clear selections on new search
+    setSelectedItems(new Set());
     
     try {
       const startTime = performance.now();
@@ -130,17 +176,12 @@ function App() {
       const endTime = performance.now();
       const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
       
-      // Map search results to keyframe image paths
       const mappedResults = data.map(item => {
         const videoId = item.image.trim();
-        
-        // Parse video ID (e.g., "L26_V299_1356" -> batch: "L26", video: "L26_V299")
         const parts = videoId.split('_');
         const batch = parts[0];
         const videoNumber = parts[1];
         const baseVideoId = `${batch}_${videoNumber}`;
-        
-        // Generate keyframe path: /keyframes/{batch}/{baseVideoId}/{fullVideoId}.jpg
         const imagePath = `/keyframes/${batch}/${baseVideoId}/${videoId}.jpg`;
         
         return {
@@ -161,6 +202,17 @@ function App() {
   useEffect(() => {
     document.title = "AIC";
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && videoPlayer) {
+        setVideoPlayer(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [videoPlayer]);
 
   const totalPages = Math.max(Math.ceil(results.length / pageSize), 1);
 
@@ -283,31 +335,69 @@ function App() {
                   color: "#666", 
                   fontSize: "14px" 
                 }}>
-                  🔍 Tìm kiếm hoàn thành trong {searchTime}s - {results.length} kết quả ({searchMode.toUpperCase()})
+                  🔍 Search completed in {searchTime}s - {results.length} results ({searchMode.toUpperCase()})
                 </div>
               )}
               <div className="result-box">
                 {currentPageData.map((item, idx) => (
                   <div key={idx} className={`card ${selectedItems.has(item.videoId) ? 'selected' : ''}`}>
-                    <div className="card-header">
-                      <input 
-                        type="checkbox" 
-                        className="card-checkbox"
-                        checked={selectedItems.has(item.videoId)}
-                        onChange={() => toggleItemSelection(item.videoId)}
-                      />
-                      <span className="card-number">{pageIndex * pageSize + idx + 1}</span>
+                    <div className="card-header-new">
+                      <div className="checkbox-caption-row">
+                        <input 
+                          type="checkbox" 
+                          className="card-checkbox-new"
+                          checked={selectedItems.has(item.videoId)}
+                          onChange={() => toggleItemSelection(item.videoId)}
+                        />
+                        <span className="card-caption-new">{item.caption}</span>
+                      </div>
                     </div>
-                    <img 
-                      src={item.image} 
-                      alt={`Keyframe for ${item.videoId}`}
-                      onError={(e) => {
-                        // Show placeholder if keyframe not found
-                        e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
-                        e.target.style.filter = "grayscale(1)";
-                      }}
-                    />
-                    <p className="card-caption">{item.caption}</p>
+                    <div style={{ position: 'relative' }}>
+                      <img 
+                        src={item.image} 
+                        alt={`Keyframe for ${item.videoId}`}
+                        onClick={() => handleKeyframeClick(item.videoId)}
+                        style={{ 
+                          cursor: loadingVideo === item.videoId ? 'wait' : 'pointer',
+                          opacity: loadingVideo === item.videoId ? 0.7 : 1
+                        }}
+                        title={`🎥 Click to open video at timestamp ${item.videoId.split('_')[2]}`}
+                        onError={(e) => {
+                          // Show placeholder if keyframe not found
+                          e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
+                          e.target.style.filter = "grayscale(1)";
+                        }}
+                      />
+                      {loadingVideo === item.videoId && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          background: 'rgba(0, 0, 0, 0.8)',
+                          color: 'white',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          pointerEvents: 'none'
+                        }}>
+                          Opening video...
+                        </div>
+                      )}
+                      <div style={{
+                        position: 'absolute',
+                        top: '8px',
+                        right: '8px',
+                        background: 'rgba(0, 0, 0, 0.7)',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        fontWeight: 'bold'
+                      }}>
+                        🎥 CLICK
+                      </div>
+                    </div>
                   </div>
                 ))}
                 {Array.from({ length: missingCount }).map((_, idx) => (
@@ -331,6 +421,93 @@ function App() {
                 </button>
               </div>
             </>
+          )}
+
+          {/* Embedded Video Player */}
+          {videoPlayer && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.9)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <div style={{
+                position: 'relative',
+                width: '90%',
+                maxWidth: '800px',
+                backgroundColor: '#000',
+                borderRadius: '8px',
+                padding: '20px'
+              }}>
+                {/* Close button */}
+                <button
+                  onClick={() => setVideoPlayer(null)}
+                  style={{
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    background: '#ff4444',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '40px',
+                    height: '40px',
+                    fontSize: '20px',
+                    cursor: 'pointer',
+                    zIndex: 1001
+                  }}
+                >
+                  ×
+                </button>
+                
+                {/* Video title and keyframe info */}
+                <div style={{
+                  color: 'white',
+                  marginBottom: '10px',
+                  fontSize: '16px',
+                  fontWeight: 'bold'
+                }}>
+                  {videoPlayer.title}
+                </div>
+                <div style={{
+                  color: '#ccc',
+                  marginBottom: '15px',
+                  fontSize: '14px'
+                }}>
+                  Keyframe: {videoPlayer.keyframe} → {Math.floor(videoPlayer.timestamp/60)}:{String(videoPlayer.timestamp%60).padStart(2,'0')}
+                </div>
+                
+                {/* YouTube iframe */}
+                <iframe
+                  width="100%"
+                  height="450"
+                  src={`https://www.youtube.com/embed/${videoPlayer.videoId}?start=${videoPlayer.timestamp}&autoplay=1&rel=0&modestbranding=1`}
+                  title={videoPlayer.title}
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  style={{
+                    borderRadius: '8px'
+                  }}
+                ></iframe>
+                
+                {/* Instructions */}
+                <div style={{
+                  color: '#999',
+                  marginTop: '10px',
+                  fontSize: '12px',
+                  textAlign: 'center'
+                }}>
+                  Video will start at the keyframe timestamp. Press ESC or click × to close.
+                </div>
+              </div>
+            </div>
           )}
 
           <div className="search-row">
