@@ -22,6 +22,8 @@ function App() {
   const [query, setQuery] = useState("");
   const [searchType, setSearchType] = useState("text");
   const [searchMode, setSearchMode] = useState("hybrid");
+  const [captionMode, setCaptionMode] = useState("bge");
+  const [alpha, setAlpha] = useState(0.5);
   const [isSearching, setIsSearching] = useState(false);
   const [searchTime, setSearchTime] = useState(null);
   const [topK, setTopK] = useState(10);
@@ -47,6 +49,18 @@ function App() {
   // Video Player State
   const [loadingVideo, setLoadingVideo] = useState(null);
   const [videoPlayer, setVideoPlayer] = useState(null);
+  
+  // Zoom State for TRAKE frames
+  const [zoomedFrame, setZoomedFrame] = useState(null);
+  // Temporal Search State (available for all modes)
+  const [temporalSearch, setTemporalSearch] = useState({
+    events: [""],
+    results: [],
+    currentPage: 0,
+    isActive: false
+  });
+
+  // TRAKE Mode State (original design)
   const [trakeMode, setTrakeMode] = useState({
     selectedVideo: null,
     videoFrames: [],
@@ -88,6 +102,8 @@ function App() {
         formData.append('query', query);
         formData.append('topK', topK.toString());
         formData.append('mode', searchMode);
+        formData.append('caption_mode', captionMode);
+        formData.append('alpha', alpha.toString());
 
         response = await fetch(`${backendUrl}/search`, {
           method: "POST",
@@ -108,6 +124,42 @@ function App() {
     } catch (error) {
       setIsConnected(false);
       alert(`Search failed: ${error.message}\nPlease check your backend URL.`);
+      return [];
+    }
+  }
+
+  async function fetchTemporalSearchResults(events) {
+    if (!backendUrl.trim()) {
+      alert("Please enter the Kaggle backend URL first!");
+      return [];
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('events', JSON.stringify(events));
+      formData.append('topK', topK.toString());
+      formData.append('mode', searchMode);
+      formData.append('caption_mode', captionMode);
+      formData.append('alpha', alpha.toString());
+
+      const response = await fetch(`${backendUrl}/temporal_search`, {
+        method: "POST",
+        headers: {
+          "ngrok-skip-browser-warning": "true"
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+      const data = await response.json();
+      setIsConnected(true);
+      return data.results;
+    } catch (error) {
+      setIsConnected(false);
+      alert(`Temporal search failed: ${error.message}\nPlease check your backend URL.`);
       return [];
     }
   }
@@ -298,6 +350,90 @@ function App() {
     }));
   };
 
+  // Temporal Search Functions (available for all modes)
+  const handleTemporalEventChange = (index, value) => {
+    setTemporalSearch(prev => ({
+      ...prev,
+      events: prev.events.map((event, i) => 
+        i === index ? value : event
+      )
+    }));
+  };
+
+  const addTemporalEvent = () => {
+    setTemporalSearch(prev => ({
+      ...prev,
+      events: [...prev.events, ""]
+    }));
+  };
+
+  const removeTemporalEvent = (index) => {
+    if (temporalSearch.events.length <= 1) return;
+    setTemporalSearch(prev => ({
+      ...prev,
+      events: prev.events.filter((_, i) => i !== index)
+    }));
+  };
+
+
+  const handleTemporalSearch = async () => {
+    const validEvents = temporalSearch.events.filter(event => event.trim() !== "");
+    if (validEvents.length === 0) {
+      alert("Please enter at least one temporal event to search.");
+      return;
+    }
+
+    setIsSearching(true);
+    const startTime = Date.now();
+    
+    try {
+      const results = await fetchTemporalSearchResults(validEvents);
+      const endTime = Date.now();
+      const searchDuration = ((endTime - startTime) / 1000).toFixed(2);
+      
+      // Map temporal results to standard format
+      const finalResults = results[results.length - 1] || [];
+      const mappedResults = finalResults.map(item => {
+        const videoId = item.image.trim();
+        const parts = videoId.split('_');
+        const batch = parts[0];
+        const videoNumber = parts[1];
+        const baseVideoId = `${batch}_${videoNumber}`;
+        const imagePath = `/keyframes/${batch}/${baseVideoId}/${videoId}.jpg`;
+
+        return {
+          ...item,
+          videoId: videoId,
+          image: imagePath
+        };
+      });
+
+      setTemporalSearch(prev => ({
+        ...prev,
+        results: mappedResults,
+        currentPage: 0,
+        isActive: true
+      }));
+      setResults(mappedResults);
+      setPageIndex(0);
+      setSearchTime(searchDuration);
+    } catch (error) {
+      console.error('Temporal search error:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const exitTemporalSearch = () => {
+    setTemporalSearch(prev => ({
+      ...prev,
+      isActive: false,
+      results: []
+    }));
+    setResults([]);
+    setPageIndex(0);
+  };
+
   const deleteEventSequence = (index) => {
     setTrakeMode(prev => ({
       ...prev,
@@ -306,6 +442,35 @@ function App() {
   };
 
   const downloadCSV = () => {
+    // Handle temporal search results for all modes
+    if (temporalSearch.isActive && temporalSearch.results.length > 0) {
+      const csvData = [];
+      temporalSearch.results.forEach(result => {
+        const parts = result.videoId.split('_');
+        if (parts.length >= 3) {
+          const videoFile = `${parts[0]}_${parts[1]}`;
+          const frameNum = parts[2];
+          
+          if (appMode === "qa") {
+            const answer = frameAnswers[result.videoId] || "";
+            csvData.push(`${videoFile}, ${frameNum}, "${answer.replace(/"/g, '""')}"`);  
+          } else {
+            csvData.push(`${videoFile}, ${frameNum}`);
+          }
+        }
+      });
+      
+      const csvContent = csvData.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${csvFileName || 'temporal_search_results'}.csv`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      return;
+    }
+
     if (appMode === "trake") {
       if (trakeMode.eventSequences.length === 0) {
         alert("Please create at least one event sequence to download.");
@@ -453,44 +618,50 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape' && videoPlayer) {
-        setVideoPlayer(null);
+      if (event.key === 'Escape') {
+        if (zoomedFrame) {
+          setZoomedFrame(null);
+        } else if (videoPlayer) {
+          setVideoPlayer(null);
+        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [videoPlayer]);
+  }, [videoPlayer, zoomedFrame]);
 
-  const totalPages = Math.max(Math.ceil(results.length / pageSize), 1);
+  // Pagination logic - separate for temporal search and regular search
+  const temporalFrameSize = 8;
+  const currentDataSource = temporalSearch.isActive ? temporalSearch.results : results;
+  const currentPageSize = temporalSearch.isActive ? temporalFrameSize : pageSize;
+  
+  const totalPages = Math.max(Math.ceil(currentDataSource.length / currentPageSize), 1);
 
-  const currentPageData = results.slice(
-    pageIndex * pageSize,
-    (pageIndex + 1) * pageSize
+  const currentPageData = currentDataSource.slice(
+    (temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) * currentPageSize,
+    ((temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) + 1) * currentPageSize
   );
 
   const goToPage = (newPageIndex) => {
     if (newPageIndex < 0) newPageIndex = 0;
     else if (newPageIndex >= totalPages) newPageIndex = totalPages - 1;
-    setPageIndex(newPageIndex);
+    
+    if (temporalSearch.isActive) {
+      setTemporalSearch(prev => ({
+        ...prev,
+        currentPage: newPageIndex
+      }));
+    } else {
+      setPageIndex(newPageIndex);
+    }
   };
 
-  const missingCount = pageSize - currentPageData.length;
+  const missingCount = currentPageSize - currentPageData.length;
 
   return (
     <div className="container">
       <div className="sidebar">
-        <div className="logo">AI CHALLENGE 2025</div>
-        <div className="team-info">
-          <h2> GROUP: Tralalero Tralala </h2>
-          <ul>
-            <li>Trần Nguyên Huân</li>
-            <li>Trần Hải Phát</li>
-            <li>Nguyễn Bảo Tuấn</li>
-            <li>Nguyễn Phát Đạt</li>
-            <li>Doãn Anh Khoa</li>
-          </ul>
-        </div>
         <div className="settings-title"> <FiSettings /> SETTINGS </div>
         <div className="sidebar-content">
           <div className="url-section">
@@ -552,18 +723,51 @@ function App() {
           </div>
 
           {searchType === "text" && (
-            <div className="search-mode-section">
-              <label className="search-mode-label">Search Mode:</label>
-              <select
-                className="search-mode-select"
-                value={searchMode}
-                onChange={(e) => setSearchMode(e.target.value)}
-              >
-                <option value="hybrid">🔗 Hybrid (CLIP + Vintern)</option>
-                <option value="clip">🖼️ CLIP Only</option>
-                <option value="vintern">📝 Vintern Only</option>
-              </select>
-            </div>
+            <>
+              <div className="search-mode-section">
+                <label className="search-mode-label">Search Mode:</label>
+                <select
+                  className="search-mode-select"
+                  value={searchMode}
+                  onChange={(e) => setSearchMode(e.target.value)}
+                >
+                  <option value="hybrid">🔗 Hybrid (CLIP + Vintern)</option>
+                  <option value="clip">🖼️ CLIP Only</option>
+                  <option value="vintern">📝 Vintern Only</option>
+                </select>
+              </div>
+
+              {(searchMode === "hybrid" || searchMode === "vintern") && (
+                <div className="caption-mode-section">
+                  <label className="caption-mode-label">Caption Model:</label>
+                  <select
+                    className="caption-mode-select"
+                    value={captionMode}
+                    onChange={(e) => setCaptionMode(e.target.value)}
+                  >
+                    <option value="bge">🇻🇳 Vietnamese_Embedding_v2</option>
+                    <option value="gte">📄 vietnamese-document-embedding</option>
+                  </select>
+                </div>
+              )}
+
+              {searchMode === "hybrid" && (
+                <div className="alpha-section">
+                  <label className="alpha-label">
+                    Text/Visual Balance: {(alpha * 100).toFixed(0)}% text
+                    <input
+                      className="alpha-slider"
+                      type="range"
+                      min="0.1"
+                      max="0.9"
+                      step="0.1"
+                      value={alpha}
+                      onChange={(e) => setAlpha(parseFloat(e.target.value))}
+                    />
+                  </label>
+                </div>
+              )}
+            </>
           )}
 
           {searchType === "image" && (
@@ -617,10 +821,67 @@ function App() {
             </div>
           )}
 
-          {((results.length > 0 && appMode !== "trake") || (appMode === "trake" && trakeMode.eventSequences.length > 0)) && (
+          {/* Temporal Search Section - Available for all modes */}
+          <div className="temporal-search-sidebar">
+            <div className="temporal-header">
+              <h4>⏰ Temporal Search</h4>
+              <p className="temporal-description">Search sequential events</p>
+            </div>
+
+            <div className="temporal-events">
+              {temporalSearch.events.map((event, index) => (
+                <div key={index} className="temporal-event-row">
+                  <label className="event-label">E{index + 1}:</label>
+                  <input
+                    type="text"
+                    className="temporal-event-input"
+                    placeholder="Describe event..."
+                    value={event}
+                    onChange={(e) => handleTemporalEventChange(index, e.target.value)}
+                  />
+                  {temporalSearch.events.length > 1 && (
+                    <button
+                      className="remove-event-btn"
+                      onClick={() => removeTemporalEvent(index)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="temporal-controls">
+              <button
+                className="add-event-btn"
+                onClick={addTemporalEvent}
+                disabled={temporalSearch.events.length >= 5}
+              >
+                + Add Event
+              </button>
+              <button
+                className="temporal-search-btn"
+                onClick={handleTemporalSearch}
+                disabled={isSearching || temporalSearch.events.every(e => !e.trim())}
+              >
+                {isSearching ? "Searching..." : "🔍 Search"}
+              </button>
+              {temporalSearch.isActive && (
+                <button
+                  className="exit-temporal-btn"
+                  onClick={exitTemporalSearch}
+                >
+                  ✕ Exit
+                </button>
+              )}
+            </div>
+          </div>
+
+          {((results.length > 0 && appMode !== "trake") || (appMode === "trake" && trakeMode.eventSequences.length > 0) || temporalSearch.isActive) && (
             <div className="csv-export-section">
               <label className="csv-label">
                 Export Selected ({
+                  temporalSearch.isActive ? "Temporal Results" :
                   appMode === "qa" ? "Q&A Format" :
                     appMode === "trake" ? "TRAKE Format" :
                       "Textual KIS"
@@ -635,7 +896,14 @@ function App() {
               />
               <div className="csv-controls">
                 <div className="selection-info">
-                  {appMode === "trake" ? (
+                  {temporalSearch.isActive ? (
+                    <>
+                      {temporalSearch.results.length} temporal results
+                      <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
+                        From {temporalSearch.events.filter(e => e.trim()).length} events
+                      </div>
+                    </>
+                  ) : appMode === "trake" ? (
                     <>
                       {trakeMode.eventSequences.length} event sequences
                       <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
@@ -668,7 +936,9 @@ function App() {
                     className="csv-btn download"
                     onClick={downloadCSV}
                     disabled={
-                      appMode === "trake" ? trakeMode.eventSequences.length === 0 : selectedItems.size === 0
+                      temporalSearch.isActive ? temporalSearch.results.length === 0 :
+                      appMode === "trake" ? trakeMode.eventSequences.length === 0 : 
+                      selectedItems.size === 0
                     }
                   >
                     📥 Download CSV
@@ -710,7 +980,11 @@ function App() {
                 color: "#666",
                 fontSize: "14px"
               }}>
-                🔍 Search completed in {searchTime}s - {results.length} results ({searchType === "image" ? "IMAGE SEARCH" : searchMode.toUpperCase()})
+                {temporalSearch.isActive ? (
+                  `🔍 Temporal search completed in ${searchTime}s - ${results.length} results from ${temporalSearch.events.filter(e => e.trim()).length} events`
+                ) : (
+                  `🔍 Search completed in ${searchTime}s - ${results.length} results (${searchType === "image" ? "IMAGE SEARCH" : searchMode.toUpperCase()})`
+                )}
               </div>
             )}
             <div className="result-box">
@@ -718,7 +992,7 @@ function App() {
                 <div key={idx} className={`card ${selectedItems.has(item.videoId) ? 'selected' : ''}`}>
                   <div className="card-header-new">
                     <div className="checkbox-caption-row">
-                      {appMode === "trake" ? (
+                      {appMode === "trake" && !temporalSearch.isActive ? (
                         <button
                           className="trake-select-btn"
                           onClick={() => selectVideoForTrake(item.videoId)}
@@ -800,17 +1074,22 @@ function App() {
               ))}
             </div>
             <div className="pagination">
-              <button onClick={() => goToPage(pageIndex - 1)} disabled={pageIndex === 0}>
+              <button onClick={() => goToPage((temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) - 1)} disabled={(temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) === 0}>
                 Previous
               </button>
 
               <span>
-                Page {pageIndex + 1} of {totalPages}
+                Page {(temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) + 1} of {totalPages}
+                {temporalSearch.isActive && (
+                  <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
+                    Temporal Search Results ({temporalFrameSize} per page)
+                  </div>
+                )}
               </span>
 
               <button
-                onClick={() => goToPage(pageIndex + 1)}
-                disabled={pageIndex === totalPages - 1}
+                onClick={() => goToPage((temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) + 1)}
+                disabled={(temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) === totalPages - 1}
               >
                 Next
               </button>
@@ -860,15 +1139,19 @@ function App() {
                       />
                       <span className="frame-number">Frame {frame.frameNum}</span>
                     </div>
-                    <img
-                      src={frame.imagePath}
-                      alt={`Frame ${frame.frameNum}`}
-                      className="trake-frame-image"
-                      onError={(e) => {
-                        e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5GcmFtZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
-                        e.target.style.filter = "grayscale(1)";
-                      }}
-                    />
+                    <div className="trake-frame-image-container">
+                      <img
+                        src={frame.imagePath}
+                        alt={`Frame ${frame.frameNum}`}
+                        className="trake-frame-image"
+                        onClick={() => setZoomedFrame(frame)}
+                        onError={(e) => {
+                          e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5GcmFtZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
+                          e.target.style.filter = "grayscale(1)";
+                        }}
+                      />
+                      <div className="zoom-indicator">🔍</div>
+                    </div>
                   </div>
                 ))}
             </div>
@@ -917,6 +1200,7 @@ function App() {
             )}
           </div>
         )}
+
 
         {/* Embedded Video Player */}
         {videoPlayer && (
@@ -1000,6 +1284,103 @@ function App() {
                 textAlign: 'center'
               }}>
                 Video will start at the keyframe timestamp. Press ESC or click × to close.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Frame Zoom Modal for TRAKE */}
+        {zoomedFrame && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.95)',
+            zIndex: 1001,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}>
+            <div style={{
+              position: 'relative',
+              maxWidth: '95vw',
+              maxHeight: '95vh',
+              backgroundColor: '#1f1f1f',
+              borderRadius: '12px',
+              padding: '20px',
+              overflow: 'hidden'
+            }}>
+              {/* Close button */}
+              <button
+                onClick={() => setZoomedFrame(null)}
+                style={{
+                  position: 'absolute',
+                  top: '15px',
+                  right: '15px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  zIndex: 1002,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+
+              {/* Frame info */}
+              <div style={{
+                color: 'white',
+                marginBottom: '15px',
+                fontSize: '18px',
+                fontWeight: 'bold',
+                textAlign: 'center'
+              }}>
+                {trakeMode.selectedVideo} - Frame {zoomedFrame.frameNum}
+              </div>
+
+              {/* Zoomed image */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                maxWidth: 'calc(95vw - 40px)',
+                maxHeight: 'calc(95vh - 120px)',
+                overflow: 'auto'
+              }}>
+                <img
+                  src={zoomedFrame.imagePath}
+                  alt={`Frame ${zoomedFrame.frameNum} - Zoomed`}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)'
+                  }}
+                  onError={(e) => {
+                    e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMzMzIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTgiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5GcmFtZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
+                  }}
+                />
+              </div>
+
+              {/* Instructions */}
+              <div style={{
+                color: '#999',
+                marginTop: '15px',
+                fontSize: '12px',
+                textAlign: 'center'
+              }}>
+                Click image to view full resolution. Press ESC or click × to close.
               </div>
             </div>
           </div>
