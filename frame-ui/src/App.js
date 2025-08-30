@@ -43,6 +43,7 @@ function App() {
 
   // App Modes State
   const [appMode, setAppMode] = useState("textual-kis");
+  const [searchModeType, setSearchModeType] = useState("normal"); // "normal" or "temporal"
   const [frameAnswers, setFrameAnswers] = useState({});
   const [csvFileName, setCsvFileName] = useState("selected_results");
 
@@ -376,6 +377,30 @@ function App() {
   };
 
 
+  const getTemporalSearchParams = () => {
+    // Adapt search parameters based on app mode
+    switch (appMode) {
+      case "qa":
+        return {
+          topK: Math.min(topK * 0.8, 50), // Fewer results for detailed Q&A analysis
+          searchMode: "hybrid", // Balanced approach for questions
+          alpha: 0.7 // More text-focused for questions
+        };
+      case "trake":
+        return {
+          topK: topK, // Use standard topK value, no enhancement
+          searchMode: searchMode, // Use current mode setting
+          alpha: alpha // Use current alpha setting
+        };
+      default: // textual-kis
+        return {
+          topK: topK,
+          searchMode: searchMode,
+          alpha: alpha
+        };
+    }
+  };
+
   const handleTemporalSearch = async () => {
     const validEvents = temporalSearch.events.filter(event => event.trim() !== "");
     if (validEvents.length === 0) {
@@ -383,17 +408,55 @@ function App() {
       return;
     }
 
+    // No mode-specific validation - allow any number of events for all modes
+
     setIsSearching(true);
     const startTime = Date.now();
     
     try {
-      const results = await fetchTemporalSearchResults(validEvents);
+      // Get mode-specific parameters
+      const params = getTemporalSearchParams();
+      
+      const formData = new FormData();
+      formData.append('events', JSON.stringify(validEvents));
+      formData.append('topK', params.topK.toString());
+      formData.append('mode', params.searchMode);
+      formData.append('caption_mode', captionMode);
+      formData.append('alpha', params.alpha.toString());
+
+      const response = await fetch(`${backendUrl}/temporal_search`, {
+        method: "POST",
+        headers: {
+          "ngrok-skip-browser-warning": "true"
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
       const endTime = Date.now();
       const searchDuration = ((endTime - startTime) / 1000).toFixed(2);
       
       // Map temporal results to standard format
-      const finalResults = results[results.length - 1] || [];
-      const mappedResults = finalResults.map(item => {
+      // For TRAKE mode: Only show results from the final event (most filtered/relevant)
+      // For other modes: Show final results as well but may process differently
+      const finalResults = data.results[data.results.length - 1] || [];
+      
+      let processedResults;
+      if (appMode === "trake") {
+        // TRAKE mode: Use only final event results for focused sequence analysis
+        // Apply topK filtering following the enhanced TRAKE parameters
+        processedResults = finalResults.slice(0, params.topK);
+      } else {
+        // Other modes: Use final results with respective topK limits
+        processedResults = finalResults.slice(0, params.topK);
+      }
+      
+      const mappedResults = processedResults.map(item => {
         const videoId = item.image.trim();
         const parts = videoId.split('_');
         const batch = parts[0];
@@ -408,17 +471,32 @@ function App() {
         };
       });
 
+      // Store all intermediate results for potential future use
+      const allResults = data.results || [finalResults];
+
       setTemporalSearch(prev => ({
         ...prev,
         results: mappedResults,
+        allResults: allResults, // Store all intermediate results
         currentPage: 0,
-        isActive: true
+        isActive: true,
+        searchInfo: data.search_info || {},
+        events: validEvents // Store the actual events used
       }));
       setResults(mappedResults);
       setPageIndex(0);
       setSearchTime(searchDuration);
+
+      // Mode-specific post-processing
+      if (appMode === "qa") {
+        // Pre-select all results for Q&A mode for easier answer input
+        const newSelection = new Set(mappedResults.map(item => item.videoId));
+        setSelectedItems(newSelection);
+      }
+      
     } catch (error) {
       console.error('Temporal search error:', error);
+      alert(`Temporal search failed: ${error.message}\nPlease check your backend URL.`);
     } finally {
       setIsSearching(false);
     }
@@ -443,7 +521,7 @@ function App() {
 
   const downloadCSV = () => {
     // Handle temporal search results for all modes
-    if (temporalSearch.isActive && temporalSearch.results.length > 0) {
+    if (searchModeType === "temporal" && temporalSearch.isActive && temporalSearch.results.length > 0) {
       const csvData = [];
       temporalSearch.results.forEach(result => {
         const parts = result.videoId.split('_');
@@ -558,7 +636,12 @@ function App() {
   };
 
   async function search() {
-    // Validation based on search type
+    // Route to appropriate search based on search mode type
+    if (searchModeType === "temporal") {
+      return handleTemporalSearch();
+    }
+
+    // Normal search validation
     if (searchType === "text" && !query.trim()) {
       setResults([]);
       setSearchTime(null);
@@ -581,6 +664,14 @@ function App() {
       videoFrames: [],
       eventSequences: [],
       currentSequence: []
+    });
+
+    // Clear temporal search state when doing normal search
+    setTemporalSearch({
+      events: [""],
+      results: [],
+      currentPage: 0,
+      isActive: false
     });
 
     try {
@@ -633,21 +724,21 @@ function App() {
 
   // Pagination logic - separate for temporal search and regular search
   const temporalFrameSize = 8;
-  const currentDataSource = temporalSearch.isActive ? temporalSearch.results : results;
-  const currentPageSize = temporalSearch.isActive ? temporalFrameSize : pageSize;
+  const currentDataSource = (searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.results : results;
+  const currentPageSize = (searchModeType === "temporal" && temporalSearch.isActive) ? temporalFrameSize : pageSize;
   
   const totalPages = Math.max(Math.ceil(currentDataSource.length / currentPageSize), 1);
 
   const currentPageData = currentDataSource.slice(
-    (temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) * currentPageSize,
-    ((temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) + 1) * currentPageSize
+    ((searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.currentPage : pageIndex) * currentPageSize,
+    (((searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.currentPage : pageIndex) + 1) * currentPageSize
   );
 
   const goToPage = (newPageIndex) => {
     if (newPageIndex < 0) newPageIndex = 0;
     else if (newPageIndex >= totalPages) newPageIndex = totalPages - 1;
     
-    if (temporalSearch.isActive) {
+    if (searchModeType === "temporal" && temporalSearch.isActive) {
       setTemporalSearch(prev => ({
         ...prev,
         currentPage: newPageIndex
@@ -695,6 +786,14 @@ function App() {
                 setAppMode(e.target.value);
                 setSelectedItems(new Set());
                 setFrameAnswers({});
+                setSearchModeType("normal"); // Reset to normal search when changing app mode
+                setTemporalSearch({
+                  events: [""],
+                  results: [],
+                  currentPage: 0,
+                  isActive: false
+                });
+                setResults([]);
               }}
             >
               <option value="textual-kis">📋 Textual KIS</option>
@@ -703,6 +802,52 @@ function App() {
             </select>
           </div>
 
+          <div className="search-mode-type-section">
+            <label className="search-mode-type-label">Search Mode Type:</label>
+            <select
+              className="search-mode-type-select"
+              value={searchModeType}
+              onChange={(e) => {
+                setSearchModeType(e.target.value);
+                setSelectedItems(new Set());
+                setFrameAnswers({});
+                if (e.target.value === "normal") {
+                  setTemporalSearch({
+                    events: [""],
+                    results: [],
+                    currentPage: 0,
+                    isActive: false
+                  });
+                  setResults([]);
+                } else {
+                  // Reset temporal search events when switching to temporal mode
+                  setTemporalSearch(prev => ({
+                    ...prev,
+                    events: [""],
+                    results: [],
+                    currentPage: 0,
+                    isActive: false
+                  }));
+                  setResults([]);
+                }
+              }}
+            >
+              <option value="normal">
+                🔍 Normal Search 
+                {appMode === "textual-kis" ? " (Standard KIS)" :
+                 appMode === "qa" ? " (Single Q&A)" :
+                 " (Single Video Selection)"}
+              </option>
+              <option value="temporal">
+                ⏰ Temporal Search
+                {appMode === "textual-kis" ? " (Sequential Events)" :
+                 appMode === "qa" ? " (Multi-Event Q&A)" :
+                 " (Event Sequences)"}
+              </option>
+            </select>
+          </div>
+
+          {searchModeType === "normal" && (
           <div className="search-type-section">
             <label className="search-type-label">Search Type:</label>
             <select
@@ -721,8 +866,9 @@ function App() {
               <option value="image">🖼️ Image Search</option>
             </select>
           </div>
+          )}
 
-          {searchType === "text" && (
+          {(searchModeType === "normal" ? searchType === "text" : true) && (
             <>
               <div className="search-mode-section">
                 <label className="search-mode-label">Search Mode:</label>
@@ -821,7 +967,8 @@ function App() {
             </div>
           )}
 
-          {/* Temporal Search Section - Available for all modes */}
+          {/* Temporal Search Section - Only show when temporal mode is selected */}
+          {searchModeType === "temporal" && (
           <div className="temporal-search-sidebar">
             <div className="temporal-header">
               <h4>⏰ Temporal Search</h4>
@@ -855,7 +1002,6 @@ function App() {
               <button
                 className="add-event-btn"
                 onClick={addTemporalEvent}
-                disabled={temporalSearch.events.length >= 5}
               >
                 + Add Event
               </button>
@@ -876,12 +1022,13 @@ function App() {
               )}
             </div>
           </div>
+          )}
 
-          {((results.length > 0 && appMode !== "trake") || (appMode === "trake" && trakeMode.eventSequences.length > 0) || temporalSearch.isActive) && (
+          {((results.length > 0 && appMode !== "trake") || (appMode === "trake" && trakeMode.eventSequences.length > 0) || (searchModeType === "temporal" && temporalSearch.isActive)) && (
             <div className="csv-export-section">
               <label className="csv-label">
                 Export Selected ({
-                  temporalSearch.isActive ? "Temporal Results" :
+                  (searchModeType === "temporal" && temporalSearch.isActive) ? "Temporal Results" :
                   appMode === "qa" ? "Q&A Format" :
                     appMode === "trake" ? "TRAKE Format" :
                       "Textual KIS"
@@ -896,14 +1043,16 @@ function App() {
               />
               <div className="csv-controls">
                 <div className="selection-info">
-                  {temporalSearch.isActive ? (
+                  {(searchModeType === "temporal" && temporalSearch.isActive) ? (
                     <>
                       {temporalSearch.results.length} temporal results
                       <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
                         From {temporalSearch.events.filter(e => e.trim()).length} events
+                        {appMode === "trake" && " (Final event results only)"}
+                        {appMode === "qa" && " (Q&A analysis)"}
                       </div>
                     </>
-                  ) : appMode === "trake" ? (
+                  ) : appMode === "trake" && searchModeType === "normal" ? (
                     <>
                       {trakeMode.eventSequences.length} event sequences
                       <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
@@ -922,7 +1071,7 @@ function App() {
                   )}
                 </div>
                 <div className="csv-buttons">
-                  {appMode !== "trake" && (
+                  {(appMode !== "trake" || (appMode === "trake" && searchModeType === "temporal")) && (
                     <>
                       <button className="csv-btn select-all" onClick={selectAllCurrentPage}>
                         Select Page
@@ -936,7 +1085,7 @@ function App() {
                     className="csv-btn download"
                     onClick={downloadCSV}
                     disabled={
-                      temporalSearch.isActive ? temporalSearch.results.length === 0 :
+                      (searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.results.length === 0 :
                       appMode === "trake" ? trakeMode.eventSequences.length === 0 : 
                       selectedItems.size === 0
                     }
@@ -980,8 +1129,16 @@ function App() {
                 color: "#666",
                 fontSize: "14px"
               }}>
-                {temporalSearch.isActive ? (
-                  `🔍 Temporal search completed in ${searchTime}s - ${results.length} results from ${temporalSearch.events.filter(e => e.trim()).length} events`
+                {(searchModeType === "temporal" && temporalSearch.isActive) ? (
+                  <div>
+                    {appMode === "qa" ? "❓" : appMode === "trake" ? "🎬" : "🔍"} 
+                    {" "}Temporal search completed in {searchTime}s
+                    <div style={{fontSize: "12px", marginTop: "2px"}}>
+                      {results.length} results from {temporalSearch.events.filter(e => e.trim()).length} events
+                      {appMode === "qa" && " (optimized for Q&A)"}
+                      {appMode === "trake" && " (final event only)"}
+                    </div>
+                  </div>
                 ) : (
                   `🔍 Search completed in ${searchTime}s - ${results.length} results (${searchType === "image" ? "IMAGE SEARCH" : searchMode.toUpperCase()})`
                 )}
@@ -992,13 +1149,29 @@ function App() {
                 <div key={idx} className={`card ${selectedItems.has(item.videoId) ? 'selected' : ''}`}>
                   <div className="card-header-new">
                     <div className="checkbox-caption-row">
-                      {appMode === "trake" && !temporalSearch.isActive ? (
+                      {appMode === "trake" && searchModeType === "normal" ? (
                         <button
                           className="trake-select-btn"
                           onClick={() => selectVideoForTrake(item.videoId)}
                         >
                           🎬 Select Video
                         </button>
+                      ) : appMode === "trake" && searchModeType === "temporal" ? (
+                        <div className="trake-temporal-controls">
+                          <input
+                            type="checkbox"
+                            className="card-checkbox-new"
+                            checked={selectedItems.has(item.videoId)}
+                            onChange={() => toggleItemSelection(item.videoId)}
+                          />
+                          <button
+                            className="trake-select-btn"
+                            onClick={() => selectVideoForTrake(item.videoId)}
+                            style={{marginLeft: "8px", padding: "2px 6px", fontSize: "10px"}}
+                          >
+                            🎬 View Frames
+                          </button>
+                        </div>
                       ) : (
                         <input
                           type="checkbox"
@@ -1074,13 +1247,13 @@ function App() {
               ))}
             </div>
             <div className="pagination">
-              <button onClick={() => goToPage((temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) - 1)} disabled={(temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) === 0}>
+              <button onClick={() => goToPage(((searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.currentPage : pageIndex) - 1)} disabled={((searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.currentPage : pageIndex) === 0}>
                 Previous
               </button>
 
               <span>
-                Page {(temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) + 1} of {totalPages}
-                {temporalSearch.isActive && (
+                Page {((searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.currentPage : pageIndex) + 1} of {totalPages}
+                {(searchModeType === "temporal" && temporalSearch.isActive) && (
                   <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
                     Temporal Search Results ({temporalFrameSize} per page)
                   </div>
@@ -1088,8 +1261,8 @@ function App() {
               </span>
 
               <button
-                onClick={() => goToPage((temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) + 1)}
-                disabled={(temporalSearch.isActive ? temporalSearch.currentPage : pageIndex) === totalPages - 1}
+                onClick={() => goToPage(((searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.currentPage : pageIndex) + 1)}
+                disabled={((searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.currentPage : pageIndex) === totalPages - 1}
               >
                 Next
               </button>
@@ -1387,10 +1560,29 @@ function App() {
         )}
 
         <div className="search-row">
-          {searchType === "text" ? (
+          {searchModeType === "temporal" ? (
+            // Temporal search interface
+            <div className="temporal-search-interface">
+              <div className="temporal-search-info">
+                <span>
+                  {appMode === "textual-kis" && "🔍 Sequential Event Search"}
+                  {appMode === "qa" && "❓ Multi-Event Q&A Analysis"} 
+                  {appMode === "trake" && "🎬 Video Sequence Analysis"}
+                </span>
+                <div style={{fontSize: "12px", color: "#888", marginTop: "4px"}}>
+                  Use the temporal search controls in the sidebar to define events
+                </div>
+              </div>
+            </div>
+          ) : searchType === "text" ? (
+            // Normal text search
             <input
               type="text"
-              placeholder="Enter text query..."
+              placeholder={
+                appMode === "textual-kis" ? "Enter search query for KIS..." :
+                appMode === "qa" ? "Enter question or topic..." :
+                "Enter search query for video selection..."
+              }
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -1401,6 +1593,7 @@ function App() {
               }}
             />
           ) : (
+            // Image search interface
             <div className="image-search-display">
               {imagePreview ? (
                 <div className="search-image-preview">
@@ -1414,7 +1607,17 @@ function App() {
               )}
             </div>
           )}
-          <button id="search-btn" onClick={search} disabled={isSearching}>
+          <button 
+            id="search-btn" 
+            onClick={search} 
+            disabled={
+              isSearching || 
+              (searchModeType === "temporal" && temporalSearch.events.every(e => !e.trim()))
+            }
+            style={{
+              display: searchModeType === "temporal" ? "none" : "block"
+            }}
+          >
             {isSearching ? "..." : <FaArrowUp />}
           </button>
         </div>
