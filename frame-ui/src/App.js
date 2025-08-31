@@ -169,50 +169,6 @@ function App() {
     setSelectedItems(new Set());
   };
 
-  // Function to convert timestamp (MM:SS) to frame order using FPS
-  const convertTimestampToFrame = async (videoFile, timestampStr) => {
-    try {
-      const mediaInfoPath = `/media-info-aic25-b1/media-info/${videoFile}.json`;
-      const response = await fetch(mediaInfoPath);
-      if (!response.ok) {
-        throw new Error(`Could not load video info for ${videoFile}`);
-      }
-
-      const videoInfo = await response.json();
-      const videoFPS = videoInfo.fps || 25;
-      
-      // Parse timestamp string (MM:SS format)
-      const timeParts = timestampStr.split(':');
-      let totalSeconds = 0;
-      
-      if (timeParts.length === 2) {
-        const minutes = parseInt(timeParts[0]) || 0;
-        const seconds = parseInt(timeParts[1]) || 0;
-        totalSeconds = minutes * 60 + seconds;
-      } else if (timeParts.length === 1) {
-        totalSeconds = parseInt(timeParts[0]) || 0;
-      }
-      
-      // Convert to frame order: fps * seconds = frame
-      const frameOrder = Math.floor(totalSeconds * videoFPS);
-      
-      return {
-        frameOrder,
-        fps: videoFPS,
-        totalSeconds,
-        duration: videoInfo.length,
-        title: videoInfo.title
-      };
-    } catch (error) {
-      console.error('Error converting timestamp to frame:', error);
-      throw error;
-    }
-  };
-
-  // Function to calculate current frame order from current video time
-  const calculateCurrentFrameOrder = (currentTimeSeconds, fps) => {
-    return Math.floor(currentTimeSeconds * fps);
-  };
 
 
   // Simple manual time to frame conversion with milliseconds support
