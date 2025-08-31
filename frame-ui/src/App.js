@@ -50,6 +50,8 @@ function App() {
   // Video Player State
   const [loadingVideo, setLoadingVideo] = useState(null);
   const [videoPlayer, setVideoPlayer] = useState(null);
+  const [timeInput, setTimeInput] = useState("");
+  const [calculatedFrameOrder, setCalculatedFrameOrder] = useState(null);
   
   // Video Filter State
   const [videoFilter, setVideoFilter] = useState("all"); // "all" or specific video ID
@@ -167,6 +169,121 @@ function App() {
     setSelectedItems(new Set());
   };
 
+  // Function to convert timestamp (MM:SS) to frame order using FPS
+  const convertTimestampToFrame = async (videoFile, timestampStr) => {
+    try {
+      const mediaInfoPath = `/media-info-aic25-b1/media-info/${videoFile}.json`;
+      const response = await fetch(mediaInfoPath);
+      if (!response.ok) {
+        throw new Error(`Could not load video info for ${videoFile}`);
+      }
+
+      const videoInfo = await response.json();
+      const videoFPS = videoInfo.fps || 25;
+      
+      // Parse timestamp string (MM:SS format)
+      const timeParts = timestampStr.split(':');
+      let totalSeconds = 0;
+      
+      if (timeParts.length === 2) {
+        const minutes = parseInt(timeParts[0]) || 0;
+        const seconds = parseInt(timeParts[1]) || 0;
+        totalSeconds = minutes * 60 + seconds;
+      } else if (timeParts.length === 1) {
+        totalSeconds = parseInt(timeParts[0]) || 0;
+      }
+      
+      // Convert to frame order: fps * seconds = frame
+      const frameOrder = Math.floor(totalSeconds * videoFPS);
+      
+      return {
+        frameOrder,
+        fps: videoFPS,
+        totalSeconds,
+        duration: videoInfo.length,
+        title: videoInfo.title
+      };
+    } catch (error) {
+      console.error('Error converting timestamp to frame:', error);
+      throw error;
+    }
+  };
+
+  // Function to calculate current frame order from current video time
+  const calculateCurrentFrameOrder = (currentTimeSeconds, fps) => {
+    return Math.floor(currentTimeSeconds * fps);
+  };
+
+
+  // Simple manual time to frame conversion with milliseconds support
+  const handleTimeToFrameConversion = () => {
+    if (!timeInput.trim()) {
+      setCalculatedFrameOrder(null);
+      return;
+    }
+
+    if (!videoPlayer) {
+      alert('No video is loaded');
+      return;
+    }
+
+    try {
+      // Parse time input (supports MM:SS.mmm, MM:SS, or just seconds)
+      let totalSeconds = 0;
+      let displayTime = timeInput;
+      
+      if (timeInput.includes(':')) {
+        // Handle MM:SS.mmm or MM:SS format
+        const timeParts = timeInput.split(':');
+        if (timeParts.length === 2) {
+          const minutes = parseInt(timeParts[0]) || 0;
+          
+          // Handle seconds with possible milliseconds
+          const secondsPart = timeParts[1];
+          let seconds = 0;
+          
+          if (secondsPart.includes('.')) {
+            // Has milliseconds: SS.mmm
+            seconds = parseFloat(secondsPart) || 0;
+          } else {
+            // Just seconds: SS
+            seconds = parseInt(secondsPart) || 0;
+          }
+          
+          totalSeconds = minutes * 60 + seconds;
+        }
+      } else {
+        // Just seconds (with possible decimals)
+        totalSeconds = parseFloat(timeInput) || 0;
+      }
+      
+      // Calculate frame order using video FPS with precise milliseconds
+      const fps = videoPlayer.fps || 25;
+      const frameOrder = Math.floor(totalSeconds * fps);
+      
+      // For display, format the time properly
+      if (!timeInput.includes(':') && totalSeconds >= 60) {
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = (totalSeconds % 60).toFixed(3);
+        displayTime = `${minutes}:${seconds.padStart(6, '0')}`;
+      }
+      
+      setCalculatedFrameOrder({
+        inputTime: timeInput,
+        displayTime,
+        totalSeconds: totalSeconds.toFixed(3),
+        fps,
+        frameOrder,
+        preciseCalculation: `${totalSeconds.toFixed(3)}s × ${fps} FPS = ${(totalSeconds * fps).toFixed(3)} → ${frameOrder}`
+      });
+      
+    } catch (error) {
+      console.error('Error converting time to frame:', error);
+      alert('Invalid time format. Use MM:SS.mmm, MM:SS, or seconds with decimals.');
+    }
+  };
+
+
   const handleKeyframeClick = async (videoId) => {
     setLoadingVideo(videoId);
     try {
@@ -203,8 +320,14 @@ function App() {
           videoId: youtubeVideoId,
           timestamp: finalTimestamp,
           title: videoInfo.title || `Video ${videoFile}`,
-          keyframe: videoId
+          keyframe: videoId,
+          fps: videoFPS,
+          videoDuration: videoDuration
         });
+        
+        // Reset calculator when opening new video  
+        setTimeInput("");
+        setCalculatedFrameOrder(null);
       } else {
         throw new Error('Could not extract YouTube video ID');
       }
@@ -1877,11 +2000,107 @@ function App() {
                 marginBottom: '15px',
                 fontSize: '14px'
               }}>
-                Keyframe: {videoPlayer.keyframe} → {Math.floor(videoPlayer.timestamp / 60)}:{String(videoPlayer.timestamp % 60).padStart(2, '0')}
+                Initial Keyframe: {videoPlayer.keyframe} → {Math.floor(videoPlayer.timestamp / 60)}:{String(videoPlayer.timestamp % 60).padStart(2, '0')}
+                {videoPlayer.fps && (
+                  <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                    FPS: {videoPlayer.fps} | Initial Frame: {videoPlayer.keyframe.split('_')[2]} | Duration: {Math.floor(videoPlayer.videoDuration / 60)}:{String(videoPlayer.videoDuration % 60).padStart(2, '0')}
+                  </div>
+                )}
               </div>
+
+              {/* Simple Time to Frame Calculator */}
+              <div style={{
+                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                border: '1px solid rgba(0, 123, 255, 0.3)',
+                borderRadius: '4px',
+                padding: '10px',
+                marginBottom: '10px'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '8px'
+                }}>
+                  <span style={{ color: '#007bff', fontSize: '12px', fontWeight: 'bold', minWidth: '70px' }}>
+                    Enter Time:
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="00:56.497 or 56.497 (with milliseconds)"
+                    value={timeInput}
+                    onChange={(e) => setTimeInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleTimeToFrameConversion();
+                      }
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '3px',
+                      border: '1px solid #555',
+                      backgroundColor: '#2a2a2a',
+                      color: 'white',
+                      fontSize: '12px',
+                      flex: 1
+                    }}
+                  />
+                  <button
+                    onClick={handleTimeToFrameConversion}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '3px',
+                      border: 'none',
+                      backgroundColor: '#007bff',
+                      color: 'white',
+                      fontSize: '11px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ➡️ Convert
+                  </button>
+                </div>
+
+                {calculatedFrameOrder && (
+                  <div style={{
+                    backgroundColor: 'rgba(0, 255, 0, 0.1)',
+                    border: '1px solid rgba(0, 255, 0, 0.3)',
+                    borderRadius: '3px',
+                    padding: '6px',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{
+                      fontSize: '14px',
+                      fontWeight: 'bold',
+                      color: '#00ff00',
+                      marginBottom: '2px'
+                    }}>
+                      Frame Order: {calculatedFrameOrder.frameOrder.toLocaleString()}
+                    </div>
+                    <div style={{
+                      fontSize: '10px',
+                      color: '#888',
+                      fontFamily: 'monospace'
+                    }}>
+                      {calculatedFrameOrder.preciseCalculation}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{
+                  fontSize: '9px',
+                  color: '#888',
+                  textAlign: 'center',
+                  marginTop: '4px'
+                }}>
+                  Video FPS: {videoPlayer.fps} | Duration: {Math.floor(videoPlayer.videoDuration / 60)}:{String(videoPlayer.videoDuration % 60).padStart(2, '0')}
+                </div>
+              </div>
+
 
               {/* YouTube iframe */}
               <iframe
+                key={videoPlayer.timestamp}
                 width="100%"
                 height="450"
                 src={`https://www.youtube.com/embed/${videoPlayer.videoId}?start=${videoPlayer.timestamp}&autoplay=1&rel=0&modestbranding=1`}
