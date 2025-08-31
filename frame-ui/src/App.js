@@ -51,6 +51,20 @@ function App() {
   const [loadingVideo, setLoadingVideo] = useState(null);
   const [videoPlayer, setVideoPlayer] = useState(null);
   
+  // Video Filter State
+  const [videoFilter, setVideoFilter] = useState("all"); // "all" or specific video ID
+  
+  // Sidebar Video Keyframes Viewer State
+  const [selectedVideoForViewing, setSelectedVideoForViewing] = useState(""); // Video ID to view keyframes
+  const [videoKeyframes, setVideoKeyframes] = useState([]); // Keyframes from selected video
+  const [loadingVideoKeyframes, setLoadingVideoKeyframes] = useState(false);
+  
+  // Video Browse State (right side display)
+  const [videoBrowseMode, setVideoBrowseMode] = useState(false);
+  const [browsedVideoId, setBrowsedVideoId] = useState("");
+  const [browseCurrentPage, setBrowseCurrentPage] = useState(0);
+  const [browseZoomedFrame, setBrowseZoomedFrame] = useState(null);
+  
   // Zoom State for TRAKE frames
   const [zoomedFrame, setZoomedFrame] = useState(null);
   // Temporal Search State (available for all modes)
@@ -58,7 +72,8 @@ function App() {
     events: [""],
     results: [],
     currentPage: 0,
-    isActive: false
+    isActive: false,
+    searchMode: "progressive"  // "progressive" or "consolidated"
   });
 
   // TRAKE Mode State (original design)
@@ -129,41 +144,6 @@ function App() {
     }
   }
 
-  async function fetchTemporalSearchResults(events) {
-    if (!backendUrl.trim()) {
-      alert("Please enter the Kaggle backend URL first!");
-      return [];
-    }
-
-    try {
-      const formData = new FormData();
-      formData.append('events', JSON.stringify(events));
-      formData.append('topK', topK.toString());
-      formData.append('mode', searchMode);
-      formData.append('caption_mode', captionMode);
-      formData.append('alpha', alpha.toString());
-
-      const response = await fetch(`${backendUrl}/temporal_search`, {
-        method: "POST",
-        headers: {
-          "ngrok-skip-browser-warning": "true"
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-      const data = await response.json();
-      setIsConnected(true);
-      return data.results;
-    } catch (error) {
-      setIsConnected(false);
-      alert(`Temporal search failed: ${error.message}\nPlease check your backend URL.`);
-      return [];
-    }
-  }
 
   const toggleItemSelection = (videoId) => {
     const newSelection = new Set(selectedItems);
@@ -413,6 +393,9 @@ function App() {
     setIsSearching(true);
     const startTime = Date.now();
     
+    // Reset video filter for new temporal search
+    setVideoFilter("all");
+    
     try {
       // Get mode-specific parameters
       const params = getTemporalSearchParams();
@@ -423,6 +406,7 @@ function App() {
       formData.append('mode', params.searchMode);
       formData.append('caption_mode', captionMode);
       formData.append('alpha', params.alpha.toString());
+      formData.append('search_mode', temporalSearch.searchMode);
 
       const response = await fetch(`${backendUrl}/temporal_search`, {
         method: "POST",
@@ -441,38 +425,57 @@ function App() {
       const endTime = Date.now();
       const searchDuration = ((endTime - startTime) / 1000).toFixed(2);
       
-      // Map temporal results to standard format
-      // For TRAKE mode: Only show results from the final event (most filtered/relevant)
-      // For other modes: Show final results as well but may process differently
-      const finalResults = data.results[data.results.length - 1] || [];
+      let mappedResults;
       
-      let processedResults;
-      if (appMode === "trake") {
-        // TRAKE mode: Use only final event results for focused sequence analysis
-        // Apply topK filtering following the enhanced TRAKE parameters
-        processedResults = finalResults.slice(0, params.topK);
-      } else {
-        // Other modes: Use final results with respective topK limits
-        processedResults = finalResults.slice(0, params.topK);
-      }
-      
-      const mappedResults = processedResults.map(item => {
-        const videoId = item.image.trim();
-        const parts = videoId.split('_');
-        const batch = parts[0];
-        const videoNumber = parts[1];
-        const baseVideoId = `${batch}_${videoNumber}`;
-        const imagePath = `/keyframes/${batch}/${baseVideoId}/${videoId}.jpg`;
+      if (temporalSearch.searchMode === "consolidated") {
+        // Consolidated mode: Handle video timeline results
+        mappedResults = data.results.map(videoTimeline => {
+          // Map each video timeline to a consolidated display format
+          const firstFrame = videoTimeline.image[0]; // Use first event frame as primary
+          const parts = firstFrame.split('_');
+          const batch = parts[0];
+          const videoNumber = parts[1];
+          const baseVideoId = `${batch}_${videoNumber}`;
+          const imagePath = `/keyframes/${batch}/${baseVideoId}/${firstFrame}.jpg`;
 
-        return {
-          ...item,
-          videoId: videoId,
-          image: imagePath
-        };
-      });
+          return {
+            videoId: firstFrame, // Primary frame ID for display
+            image: imagePath,
+            caption: `${videoTimeline.video_id} | Timeline Score: ${videoTimeline.score.toFixed(3)}`,
+            videoTimeline: videoTimeline, // Store full timeline data
+            isConsolidated: true
+          };
+        });
+      } else {
+        // Progressive mode: Handle event-by-event results
+        const finalResults = data.results[data.results.length - 1] || [];
+        
+        let processedResults;
+        if (appMode === "trake") {
+          processedResults = finalResults.slice(0, params.topK);
+        } else {
+          processedResults = finalResults.slice(0, params.topK);
+        }
+        
+        mappedResults = processedResults.map(item => {
+          const videoId = item.image.trim();
+          const parts = videoId.split('_');
+          const batch = parts[0];
+          const videoNumber = parts[1];
+          const baseVideoId = `${batch}_${videoNumber}`;
+          const imagePath = `/keyframes/${batch}/${baseVideoId}/${videoId}.jpg`;
+
+          return {
+            ...item,
+            videoId: videoId,
+            image: imagePath,
+            isConsolidated: false
+          };
+        });
+      }
 
       // Store all intermediate results for potential future use
-      const allResults = data.results || [finalResults];
+      const allResults = data.results || [];
 
       setTemporalSearch(prev => ({
         ...prev,
@@ -506,7 +509,8 @@ function App() {
     setTemporalSearch(prev => ({
       ...prev,
       isActive: false,
-      results: []
+      results: [],
+      searchMode: "progressive"
     }));
     setResults([]);
     setPageIndex(0);
@@ -519,33 +523,71 @@ function App() {
     }));
   };
 
-  const downloadCSV = () => {
-    // Handle temporal search results for all modes
-    if (searchModeType === "temporal" && temporalSearch.isActive && temporalSearch.results.length > 0) {
-      const csvData = [];
-      temporalSearch.results.forEach(result => {
-        const parts = result.videoId.split('_');
-        if (parts.length >= 3) {
-          const videoFile = `${parts[0]}_${parts[1]}`;
-          const frameNum = parts[2];
-          
-          if (appMode === "qa") {
-            const answer = frameAnswers[result.videoId] || "";
-            csvData.push(`${videoFile}, ${frameNum}, "${answer.replace(/"/g, '""')}"`);  
-          } else {
-            csvData.push(`${videoFile}, ${frameNum}`);
-          }
+  // Helper function to extract frame timestamp from full frame ID
+  const extractFrameTimestamp = (frameId) => {
+    const parts = frameId.split('_');
+    return parts.length >= 3 ? parts[2] : frameId;
+  };
+
+  // Helper function to create CSV blob and download
+  const downloadCSVFile = (csvData, filename) => {
+    const csvContent = csvData.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${csvFileName || filename}.csv`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Generate CSV data for Timeline View (consolidated) results
+  const generateTimelineCSV = (results) => {
+    const csvData = [];
+    results.forEach(result => {
+      if (result.isConsolidated && result.videoTimeline && selectedItems.has(result.videoId)) {
+        const videoId = result.videoTimeline.video_id;
+        const frameSequence = result.videoTimeline.image.map(extractFrameTimestamp);
+        csvData.push(`${videoId}, ${frameSequence.join(', ')}`);
+      }
+    });
+    return csvData;
+  };
+
+  // Generate CSV data for Sequential Search results
+  const generateSequentialCSV = (results) => {
+    const csvData = [];
+    results.forEach(result => {
+      const parts = result.videoId.split('_');
+      if (parts.length >= 3) {
+        const videoFile = `${parts[0]}_${parts[1]}`;
+        const frameNum = parts[2];
+        
+        if (appMode === "qa") {
+          const answer = frameAnswers[result.videoId] || "";
+          csvData.push(`${videoFile}, ${frameNum}, "${answer.replace(/"/g, '""')}"`);
+        } else {
+          csvData.push(`${videoFile}, ${frameNum}`);
         }
-      });
+      }
+    });
+    return csvData;
+  };
+
+  const downloadCSV = () => {
+    // Handle temporal search results
+    if (searchModeType === "temporal" && temporalSearch.isActive && temporalSearch.results.length > 0) {
+      const hasConsolidatedResults = temporalSearch.results.some(result => 
+        result.isConsolidated && result.videoTimeline
+      );
       
-      const csvContent = csvData.join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${csvFileName || 'temporal_search_results'}.csv`;
-      link.click();
-      window.URL.revokeObjectURL(url);
+      if (hasConsolidatedResults) {
+        const csvData = generateTimelineCSV(temporalSearch.results);
+        downloadCSVFile(csvData, 'timeline_sequences');
+      } else {
+        const csvData = generateSequentialCSV(temporalSearch.results);
+        downloadCSVFile(csvData, 'temporal_search_results');
+      }
       return;
     }
 
@@ -635,6 +677,134 @@ function App() {
     setImagePreview(null);
   };
 
+  // Video Filter Functions
+  const getUniqueVideos = (results) => {
+    const videos = new Set();
+    results.forEach(item => {
+      if (item.videoId) {
+        const parts = item.videoId.split('_');
+        if (parts.length >= 2) {
+          const videoId = `${parts[0]}_${parts[1]}`; // e.g., "L01_V001"
+          videos.add(videoId);
+        }
+      }
+    });
+    return Array.from(videos).sort();
+  };
+
+  const filterResultsByVideo = (results, filter) => {
+    if (filter === "all") return results;
+    
+    return results.filter(item => {
+      if (!item.videoId) return false;
+      const parts = item.videoId.split('_');
+      if (parts.length >= 2) {
+        const videoId = `${parts[0]}_${parts[1]}`;
+        return videoId === filter;
+      }
+      return false;
+    });
+  };
+
+  const handleVideoFilterChange = (newFilter) => {
+    setVideoFilter(newFilter);
+    setPageIndex(0); // Reset to first page when filter changes
+    if (searchModeType === "temporal" && temporalSearch.isActive) {
+      setTemporalSearch(prev => ({
+        ...prev,
+        currentPage: 0
+      }));
+    }
+  };
+
+  // Function to load video keyframes using keyframes_index.json
+  const loadVideoKeyframes = async (videoId) => {
+    if (!videoId) {
+      setVideoKeyframes([]);
+      return;
+    }
+
+    setLoadingVideoKeyframes(true);
+    try {
+      // Load the keyframes index file
+      const response = await fetch('/media-info-aic25-b1/media-info/keyframes_index.json');
+      
+      if (!response.ok) {
+        throw new Error('Keyframes index not found');
+      }
+      
+      const keyframesIndex = await response.json();
+      
+      // Get keyframes for the selected video
+      const imagePaths = keyframesIndex[videoId];
+      
+      if (imagePaths && imagePaths.length > 0) {
+        // Map image paths to frame objects
+        const mappedKeyframes = imagePaths.map(imagePath => {
+          // Extract frame number from path (e.g., /keyframes/L21/L21_V001/L21_V001_1200.jpg -> 1200)
+          const filename = imagePath.split('/').pop();
+          const frameMatch = filename.match(/_(\d+)\.jpg$/);
+          const frameNum = frameMatch ? parseInt(frameMatch[1]) : 0;
+          
+          return {
+            videoId: filename.replace('.jpg', ''), // L21_V001_1200
+            image: imagePath,
+            caption: `Frame at ${frameNum}ms from ${videoId}`,
+            score: 1.0,
+            timestamp: frameNum
+          };
+        });
+
+        // Sort by timestamp for chronological order
+        mappedKeyframes.sort((a, b) => a.timestamp - b.timestamp);
+        
+        setVideoKeyframes(mappedKeyframes);
+      } else {
+        // No keyframes found for this video
+        setVideoKeyframes([]);
+        console.log(`No keyframes found for video: ${videoId}`);
+      }
+    } catch (error) {
+      console.error('Error loading video keyframes:', error);
+      setVideoKeyframes([]);
+    } finally {
+      setLoadingVideoKeyframes(false);
+    }
+  };
+
+  const handleVideoSelectionForViewing = (videoId) => {
+    setSelectedVideoForViewing(videoId);
+    if (videoId) {
+      loadVideoKeyframes(videoId);
+      // Also activate right-side video browse
+      setBrowsedVideoId(videoId);
+      setVideoBrowseMode(true);
+      setBrowseCurrentPage(0);
+    } else {
+      setVideoKeyframes([]);
+      setVideoBrowseMode(false);
+      setBrowsedVideoId("");
+    }
+  };
+
+  // Video Browse Functions
+  const exitVideoBrowse = () => {
+    setVideoBrowseMode(false);
+    setBrowsedVideoId("");
+    setBrowseCurrentPage(0);
+    setBrowseZoomedFrame(null);
+  };
+
+  const goToBrowsePage = (newPageIndex) => {
+    const browseFramesPerPage = 8;
+    const totalBrowsePages = Math.ceil(videoKeyframes.length / browseFramesPerPage);
+    
+    if (newPageIndex < 0) newPageIndex = 0;
+    else if (newPageIndex >= totalBrowsePages) newPageIndex = totalBrowsePages - 1;
+    
+    setBrowseCurrentPage(newPageIndex);
+  };
+
   async function search() {
     // Route to appropriate search based on search mode type
     if (searchModeType === "temporal") {
@@ -671,8 +841,12 @@ function App() {
       events: [""],
       results: [],
       currentPage: 0,
-      isActive: false
+      isActive: false,
+      searchMode: "progressive"
     });
+    
+    // Reset video filter for new search
+    setVideoFilter("all");
 
     try {
       const startTime = performance.now();
@@ -710,7 +884,9 @@ function App() {
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
-        if (zoomedFrame) {
+        if (browseZoomedFrame) {
+          setBrowseZoomedFrame(null);
+        } else if (zoomedFrame) {
           setZoomedFrame(null);
         } else if (videoPlayer) {
           setVideoPlayer(null);
@@ -720,11 +896,14 @@ function App() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [videoPlayer, zoomedFrame]);
+  }, [videoPlayer, zoomedFrame, browseZoomedFrame]);
 
   // Pagination logic - separate for temporal search and regular search
   const temporalFrameSize = 8;
-  const currentDataSource = (searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.results : results;
+  const rawDataSource = (searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.results : results;
+  
+  // Apply video filtering
+  const currentDataSource = filterResultsByVideo(rawDataSource, videoFilter);
   const currentPageSize = (searchModeType === "temporal" && temporalSearch.isActive) ? temporalFrameSize : pageSize;
   
   const totalPages = Math.max(Math.ceil(currentDataSource.length / currentPageSize), 1);
@@ -791,7 +970,8 @@ function App() {
                   events: [""],
                   results: [],
                   currentPage: 0,
-                  isActive: false
+                  isActive: false,
+                  searchMode: "progressive"
                 });
                 setResults([]);
               }}
@@ -816,7 +996,8 @@ function App() {
                     events: [""],
                     results: [],
                     currentPage: 0,
-                    isActive: false
+                    isActive: false,
+                    searchMode: "progressive"
                   });
                   setResults([]);
                 } else {
@@ -826,7 +1007,8 @@ function App() {
                     events: [""],
                     results: [],
                     currentPage: 0,
-                    isActive: false
+                    isActive: false,
+                    searchMode: "progressive"
                   }));
                   setResults([]);
                 }
@@ -975,6 +1157,34 @@ function App() {
               <p className="temporal-description">Search sequential events</p>
             </div>
 
+
+            {/* Search Mode Selection */}
+            <div className="temporal-search-mode-section">
+              <label className="temporal-search-mode-label">Search Strategy:</label>
+              <select
+                className="temporal-search-mode-select"
+                value={temporalSearch.searchMode}
+                onChange={(e) => setTemporalSearch(prev => ({
+                  ...prev,
+                  searchMode: e.target.value
+                }))}
+              >
+                <option value="progressive">🔍 Sequential Search (Step-by-Step)</option>
+                <option value="consolidated">📽️ Timeline View (Video Events)</option>
+              </select>
+              <div className="temporal-mode-description">
+                {temporalSearch.searchMode === "progressive" ? (
+                  <span style={{fontSize: "11px", color: "#666"}}>
+                    Searches events step-by-step, narrowing results after each step
+                  </span>
+                ) : (
+                  <span style={{fontSize: "11px", color: "#666"}}>
+                    Shows complete video timelines with all events in sequence
+                  </span>
+                )}
+              </div>
+            </div>
+
             <div className="temporal-events">
               {temporalSearch.events.map((event, index) => (
                 <div key={index} className="temporal-event-row">
@@ -1023,6 +1233,58 @@ function App() {
             </div>
           </div>
           )}
+
+          {/* Video Keyframes Viewer Section */}
+          <div className="video-keyframes-viewer-section">
+            <div className="video-keyframes-header">
+              <h4>🎬 Browse Video Keyframes</h4>
+              <p className="video-keyframes-description">View all keyframes from any video</p>
+            </div>
+
+            <div className="video-selection">
+              <label className="video-selection-label">Select Video:</label>
+              <input
+                type="text"
+                className="video-selection-input"
+                placeholder="Enter video ID (e.g., L01_V001)"
+                value={selectedVideoForViewing}
+                onChange={(e) => setSelectedVideoForViewing(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleVideoSelectionForViewing(e.target.value);
+                  }
+                }}
+              />
+              <button
+                className="load-keyframes-btn"
+                onClick={() => handleVideoSelectionForViewing(selectedVideoForViewing)}
+                disabled={!selectedVideoForViewing || loadingVideoKeyframes}
+              >
+                {loadingVideoKeyframes ? "Loading..." : "🔍 Load Keyframes"}
+              </button>
+            </div>
+
+            {videoKeyframes.length > 0 && (
+              <div className="video-keyframes-status">
+                <div className="keyframes-info">
+                  <span>📊 {videoKeyframes.length} keyframes from {selectedVideoForViewing}</span>
+                  <span style={{fontSize: "12px", color: "#666", marginTop: "4px", display: "block"}}>
+                    View keyframes on the right side →
+                  </span>
+                  <button
+                    className="clear-keyframes-btn"
+                    onClick={() => {
+                      setSelectedVideoForViewing("");
+                      setVideoKeyframes([]);
+                      exitVideoBrowse();
+                    }}
+                  >
+                    ✕ Clear
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {((results.length > 0 && appMode !== "trake") || (appMode === "trake" && trakeMode.eventSequences.length > 0) || (searchModeType === "temporal" && temporalSearch.isActive)) && (
             <div className="csv-export-section">
@@ -1109,19 +1371,50 @@ function App() {
         </div>
       </div>
 
-      <div className="main-content">
-        {isSearching ? (
-          <div className="empty-state" style={{ textAlign: "center", marginTop: 50 }}>
-            <FaSearch size={80} color="#999" />
-            <p>Đang tìm kiếm...</p>
-          </div>
-        ) : results.length === 0 ? (
-          <div className="empty-state" style={{ textAlign: "center", marginTop: 50 }}>
-            <FaSearch size={80} color="#999" />
-            <p>Chưa có kết quả để hiển thị</p>
-          </div>
-        ) : (
+      <div className={`main-content ${videoBrowseMode ? 'with-video-browse' : ''}`}>
+        <div className="main-search-results">
+          {isSearching ? (
+            <div className="empty-state" style={{ textAlign: "center", marginTop: 50 }}>
+              <FaSearch size={80} color="#999" />
+              <p>Đang tìm kiếm...</p>
+            </div>
+          ) : results.length === 0 ? (
+            <div className="empty-state" style={{ textAlign: "center", marginTop: 50 }}>
+              <FaSearch size={80} color="#999" />
+              <p>Chưa có kết quả để hiển thị</p>
+            </div>
+          ) : (
           <>
+            {/* Video Filter Section */}
+            {currentDataSource.length > 0 && (
+              <div className="video-filter-section">
+                <div className="video-filter-controls">
+                  <span className="video-filter-label">
+                    Filter by Video:
+                  </span>
+                  <select
+                    className="video-filter-select"
+                    value={videoFilter}
+                    onChange={(e) => handleVideoFilterChange(e.target.value)}
+                  >
+                    <option value="all">🎭 All Videos ({rawDataSource.length} frames)</option>
+                    {getUniqueVideos(rawDataSource).map(videoId => {
+                      const count = filterResultsByVideo(rawDataSource, videoId).length;
+                      return (
+                        <option key={videoId} value={videoId}>
+                          📹 {videoId} ({count} frames)
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div className="video-filter-info">
+                  📊 Showing: {currentDataSource.length} frames
+                  {videoFilter !== "all" && ` from ${videoFilter}`}
+                </div>
+              </div>
+            )}
+
             {searchTime && (
               <div style={{
                 textAlign: "center",
@@ -1131,12 +1424,17 @@ function App() {
               }}>
                 {(searchModeType === "temporal" && temporalSearch.isActive) ? (
                   <div>
-                    {appMode === "qa" ? "❓" : appMode === "trake" ? "🎬" : "🔍"} 
-                    {" "}Temporal search completed in {searchTime}s
+                    {temporalSearch.searchMode === "consolidated" ? "🎯" : "🔄"} 
+                    {appMode === "qa" ? " Q&A" : appMode === "trake" ? " TRAKE" : ""} 
+                    {" "}{temporalSearch.searchMode.charAt(0).toUpperCase() + temporalSearch.searchMode.slice(1)} temporal search completed in {searchTime}s
                     <div style={{fontSize: "12px", marginTop: "2px"}}>
-                      {results.length} results from {temporalSearch.events.filter(e => e.trim()).length} events
+                      {temporalSearch.searchMode === "consolidated" ? 
+                        `${results.length} video timelines from ${temporalSearch.events.filter(e => e.trim()).length} events` :
+                        `${results.length} results from ${temporalSearch.events.filter(e => e.trim()).length} events`
+                      }
                       {appMode === "qa" && " (optimized for Q&A)"}
-                      {appMode === "trake" && " (final event only)"}
+                      {appMode === "trake" && temporalSearch.searchMode === "progressive" && " (final event only)"}
+                      {appMode === "trake" && temporalSearch.searchMode === "consolidated" && " (video sequences)"}
                     </div>
                   </div>
                 ) : (
@@ -1146,7 +1444,7 @@ function App() {
             )}
             <div className="result-box">
               {currentPageData.map((item, idx) => (
-                <div key={idx} className={`card ${selectedItems.has(item.videoId) ? 'selected' : ''}`}>
+                <div key={idx} className={`card ${selectedItems.has(item.videoId) ? 'selected' : ''} ${item.isConsolidated ? 'consolidated-card' : ''}`}>
                   <div className="card-header-new">
                     <div className="checkbox-caption-row">
                       {appMode === "trake" && searchModeType === "normal" ? (
@@ -1172,16 +1470,69 @@ function App() {
                             🎬 View Frames
                           </button>
                         </div>
-                      ) : (
+                      ) : !item.isConsolidated ? (
                         <input
                           type="checkbox"
                           className="card-checkbox-new"
                           checked={selectedItems.has(item.videoId)}
                           onChange={() => toggleItemSelection(item.videoId)}
                         />
-                      )}
-                      <span className="card-caption-new">{item.caption}</span>
+                      ) : null}
+                      {!item.isConsolidated && <span className="card-caption-new">{item.caption}</span>}
                     </div>
+                    
+                    {/* Consolidated Mode: Show video timeline with consecutive events in same row */}
+                    {item.isConsolidated && item.videoTimeline && (
+                      <div className="consolidated-timeline-container">
+                        <div className="timeline-header-above-frames">
+                          <input
+                            type="checkbox"
+                            className="timeline-checkbox"
+                            checked={selectedItems.has(item.videoId)}
+                            onChange={() => toggleItemSelection(item.videoId)}
+                          />
+                          <span className="timeline-score-header">
+                            {item.videoTimeline.video_id} | Timeline Score: {item.videoTimeline.score.toFixed(3)}
+                          </span>
+                        </div>
+                        <div 
+                          className="timeline-events-horizontal"
+                          style={{'--frame-count': item.videoTimeline.image.length}}
+                        >
+                          {item.videoTimeline.image.map((frameId, eventIdx) => (
+                            <>
+                              <div key={eventIdx} className="timeline-event-frame">
+                                <img
+                                  src={(() => {
+                                    const parts = frameId.split('_');
+                                    const batch = parts[0];
+                                    const videoNumber = parts[1];
+                                    const baseVideoId = `${batch}_${videoNumber}`;
+                                    return `/keyframes/${batch}/${baseVideoId}/${frameId}.jpg`;
+                                  })()}
+                                  alt={`Event ${eventIdx + 1}`}
+                                  className="event-frame-image"
+                                  onClick={() => handleKeyframeClick(frameId)}
+                                  onError={(e) => {
+                                    e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
+                                    e.target.style.filter = "grayscale(1)";
+                                  }}
+                                  title={`🎥 Click to open video at timestamp ${frameId}`}
+                                />
+                                <div className="event-frame-caption">
+                                  <div className="event-number">E{eventIdx + 1}</div>
+                                  <div className="event-frame-id">{frameId}</div>
+                                </div>
+                              </div>
+                              {eventIdx < item.videoTimeline.image.length - 1 && (
+                                <div className="event-arrow">→</div>
+                              )}
+                            </>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
                     {appMode === "qa" && selectedItems.has(item.videoId) && (
                       <div className="qa-input-section">
                         <textarea
@@ -1194,52 +1545,56 @@ function App() {
                       </div>
                     )}
                   </div>
-                  <div style={{ position: 'relative' }}>
-                    <img
-                      src={item.image}
-                      alt={`Keyframe for ${item.videoId}`}
-                      onClick={() => handleKeyframeClick(item.videoId)}
-                      style={{
-                        cursor: loadingVideo === item.videoId ? 'wait' : 'pointer',
-                        opacity: loadingVideo === item.videoId ? 0.7 : 1
-                      }}
-                      title={`🎥 Click to open video at timestamp ${item.videoId.split('_')[2]}`}
-                      onError={(e) => {
-                        // Show placeholder if keyframe not found
-                        e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
-                        e.target.style.filter = "grayscale(1)";
-                      }}
-                    />
-                    {loadingVideo === item.videoId && (
+                  
+                  {/* Only show main image for non-consolidated cards */}
+                  {!item.isConsolidated && (
+                    <div style={{ position: 'relative' }}>
+                      <img
+                        src={item.image}
+                        alt={`Keyframe for ${item.videoId}`}
+                        onClick={() => handleKeyframeClick(item.videoId)}
+                        style={{
+                          cursor: loadingVideo === item.videoId ? 'wait' : 'pointer',
+                          opacity: loadingVideo === item.videoId ? 0.7 : 1
+                        }}
+                        title={`🎥 Click to open video at timestamp ${item.videoId.split('_')[2]}`}
+                        onError={(e) => {
+                          // Show placeholder if keyframe not found
+                          e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
+                          e.target.style.filter = "grayscale(1)";
+                        }}
+                      />
+                      {loadingVideo === item.videoId && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          background: 'rgba(0, 0, 0, 0.8)',
+                          color: 'white',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          pointerEvents: 'none'
+                        }}>
+                          Opening video...
+                        </div>
+                      )}
                       <div style={{
                         position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        background: 'rgba(0, 0, 0, 0.8)',
+                        top: '8px',
+                        right: '8px',
+                        background: 'rgba(0, 0, 0, 0.7)',
                         color: 'white',
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        fontSize: '12px',
-                        pointerEvents: 'none'
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        fontWeight: 'bold'
                       }}>
-                        Opening video...
+                        🎥 CLICK
                       </div>
-                    )}
-                    <div style={{
-                      position: 'absolute',
-                      top: '8px',
-                      right: '8px',
-                      background: 'rgba(0, 0, 0, 0.7)',
-                      color: 'white',
-                      padding: '4px 8px',
-                      borderRadius: '4px',
-                      fontSize: '10px',
-                      fontWeight: 'bold'
-                    }}>
-                      🎥 CLICK
                     </div>
-                  </div>
+                  )}
                 </div>
               ))}
               {Array.from({ length: missingCount }).map((_, idx) => (
@@ -1373,7 +1728,97 @@ function App() {
             )}
           </div>
         )}
+        </div>
 
+        {/* Video Browse Display (Right Side) */}
+        {videoBrowseMode && videoKeyframes.length > 0 && (
+          <div className="video-browse-section">
+            <div className="video-browse-header">
+              <h3>🎬 Browse Video: {browsedVideoId}</h3>
+              <div className="video-browse-controls">
+                <span className="browse-info">
+                  {videoKeyframes.length} frames total
+                </span>
+                <button
+                  className="exit-browse-btn"
+                  onClick={exitVideoBrowse}
+                >
+                  ✕ Close Browse
+                </button>
+              </div>
+            </div>
+
+            <div className="video-browse-content">
+              {(() => {
+                const browseFramesPerPage = 8;
+                const totalBrowsePages = Math.ceil(videoKeyframes.length / browseFramesPerPage);
+                const currentBrowseFrames = videoKeyframes.slice(
+                  browseCurrentPage * browseFramesPerPage,
+                  (browseCurrentPage + 1) * browseFramesPerPage
+                );
+
+                return (
+                  <>
+                    <div className="browse-frames-grid">
+                      {currentBrowseFrames.map((frame, index) => (
+                        <div key={index} className="browse-frame-item">
+                          <img
+                            src={frame.image}
+                            alt={`Frame ${frame.timestamp}`}
+                            className="browse-frame-image"
+                            onClick={() => setBrowseZoomedFrame(frame)}
+                            onError={(e) => {
+                              e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5GcmFtZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
+                              e.target.style.filter = "grayscale(1)";
+                            }}
+                          />
+                          <div className="browse-frame-info">
+                            <div className="browse-frame-filename">{frame.videoId}</div>
+                            <div className="browse-zoom-hint">🔍 Click to zoom</div>
+                          </div>
+                          <div
+                            className="browse-play-btn"
+                            onClick={() => handleKeyframeClick(frame.videoId)}
+                            title="Play video at this frame"
+                          >
+                            ▶️
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {totalBrowsePages > 1 && (
+                      <div className="browse-pagination">
+                        <button
+                          onClick={() => goToBrowsePage(browseCurrentPage - 1)}
+                          disabled={browseCurrentPage === 0}
+                          className="browse-page-btn"
+                        >
+                          ← Previous
+                        </button>
+
+                        <span className="browse-page-info">
+                          Page {browseCurrentPage + 1} of {totalBrowsePages}
+                          <div style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>
+                            Showing {currentBrowseFrames.length} of {videoKeyframes.length} frames
+                          </div>
+                        </span>
+
+                        <button
+                          onClick={() => goToBrowsePage(browseCurrentPage + 1)}
+                          disabled={browseCurrentPage >= totalBrowsePages - 1}
+                          className="browse-page-btn"
+                        >
+                          Next →
+                        </button>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         {/* Embedded Video Player */}
         {videoPlayer && (
@@ -1457,6 +1902,128 @@ function App() {
                 textAlign: 'center'
               }}>
                 Video will start at the keyframe timestamp. Press ESC or click × to close.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Frame Zoom Modal for Browse */}
+        {browseZoomedFrame && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.95)',
+            zIndex: 1001,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}>
+            <div style={{
+              position: 'relative',
+              maxWidth: '95vw',
+              maxHeight: '95vh',
+              backgroundColor: '#1f1f1f',
+              borderRadius: '12px',
+              padding: '20px',
+              overflow: 'hidden'
+            }}>
+              {/* Close button */}
+              <button
+                onClick={() => setBrowseZoomedFrame(null)}
+                style={{
+                  position: 'absolute',
+                  top: '15px',
+                  right: '15px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  zIndex: 1002,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+
+              {/* Frame info */}
+              <div style={{
+                color: 'white',
+                marginBottom: '15px',
+                fontSize: '18px',
+                fontWeight: 'bold',
+                textAlign: 'center'
+              }}>
+                {browsedVideoId} - {browseZoomedFrame.videoId}
+              </div>
+
+              {/* Zoomed image */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                maxWidth: 'calc(95vw - 40px)',
+                maxHeight: 'calc(95vh - 120px)',
+                overflow: 'auto'
+              }}>
+                <img
+                  src={browseZoomedFrame.image}
+                  alt={`Frame ${browseZoomedFrame.timestamp} - Zoomed`}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)'
+                  }}
+                  onError={(e) => {
+                    e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMzMzIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTgiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5GcmFtZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
+                  }}
+                />
+              </div>
+
+              {/* Play video button */}
+              <div style={{
+                textAlign: 'center',
+                marginTop: '15px'
+              }}>
+                <button
+                  onClick={() => {
+                    setBrowseZoomedFrame(null);
+                    handleKeyframeClick(browseZoomedFrame.videoId);
+                  }}
+                  style={{
+                    backgroundColor: '#007bff',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 16px',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    marginRight: '10px'
+                  }}
+                >
+                  ▶️ Play Video ({browseZoomedFrame.videoId})
+                </button>
+              </div>
+
+              {/* Instructions */}
+              <div style={{
+                color: '#999',
+                marginTop: '15px',
+                fontSize: '12px',
+                textAlign: 'center'
+              }}>
+                Press ESC or click × to close zoom view
               </div>
             </div>
           </div>
