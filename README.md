@@ -2,21 +2,11 @@
 
 Multimodal search system for video content using CLIP and Vietnamese text embeddings.
 
-## 🆕 Latest Updates
+## 🆕 **NEW: Dual-Batch Support**
 
-### **Dual Search Types**
-- **Text Search**: Vietnamese queries with hybrid embeddings (CLIP + BGE)
-- **Image Search**: Upload images to find similar frames using CLIP
-
-### **Three App Modes**
-- **Textual KIS**: Basic frame selection → CSV: `videoFile, frameNum`
-- **Q&A**: Frame selection + answers → CSV: `videoFile, frameNum, "answer"`  
-- **TRAKE**: Event sequences → CSV: `L21_V008, 1200, 1850, 2100`
-
-### **Interactive Features**
-- **Video Player**: Click any frame → Opens YouTube at exact timestamp
-- **TRAKE Workflow**: Select video → Browse all frames → Create sequences
-- **FPS**: Reads actual FPS from metadata
+### **Multi-Dataset**
+- **Batch 1 (L-Series)**: L21_V001, L22_V002... → `keyframes/` + `media-info-aic25-b1/`
+- **Batch 2 (K-Series)**: K01_V001, K02_V002... → `keyframes-b2/` + `media-info-aic25-b2/`
 
 ## 🚀 Quick Start
 
@@ -63,16 +53,22 @@ mode: "image"
 - **CLIP Only**: Visual similarity
 - **Vintern Only**: Vietnamese text
 
-## 📁 Required Structure
+## 📁 Required Structure (Updated for Batch 2)
 
 ```
 frame-ui/public/
-├── keyframes/
+├── keyframes/                    # Batch 1 (L-Series)
 │   ├── L21/L21_V001/L21_V001_1234.jpg
 │   └── L22/L22_V001/L22_V001_5678.jpg
-└── media-info-aic25-b1/media-info/
-    ├── L21_V001.json    # Video metadata with FPS
-    └── keyframes_index.json  # Auto-generated
+├── keyframes-b2/                 # Batch 2 (K-Series)
+│   ├── K01/K01_V001/K01_V001_1000.jpg
+│   └── K02/K02_V003/K02_V003_2500.jpg
+├── media-info-aic25-b1/media-info/   # Batch 1 metadata
+│   ├── L21_V001.json
+│   └── keyframes_index.json
+└── media-info-aic25-b2/media-info/   # Batch 2 metadata
+    ├── K01_V001.json
+    └── keyframes_index.json
 ```
 
 ## 🎬 TRAKE Mode Usage

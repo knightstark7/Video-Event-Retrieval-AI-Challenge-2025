@@ -90,6 +90,34 @@ function App() {
   // Constants
   const pageSize = 8;
 
+  // Helper function to determine batch configuration
+  const getBatchConfig = (videoId) => {
+    const videoPrefix = videoId.charAt(0);
+    
+    if (videoPrefix === 'L') {
+      // Batch 1: L-prefixed videos (L21_V001, L22_V002, etc.)
+      return {
+        keyframesDir: 'keyframes',
+        mediaInfoDir: 'media-info-aic25-b1/media-info',
+        isKPrefixed: false
+      };
+    } else if (videoPrefix === 'K') {
+      // Batch 2: K-prefixed videos (K01_V001, K02_V002, etc.)
+      return {
+        keyframesDir: 'keyframes-b2',
+        mediaInfoDir: 'media-info-aic25-b2/media-info', 
+        isKPrefixed: true
+      };
+    } else {
+      // Default to batch 1 for unknown formats
+      return {
+        keyframesDir: 'keyframes',
+        mediaInfoDir: 'media-info-aic25-b1/media-info',
+        isKPrefixed: false
+      };
+    }
+  };
+
   async function fetchSearchResults(query, imageFile = null) {
     if (!backendUrl.trim()) {
       alert("Please enter the Kaggle backend URL first!");
@@ -254,7 +282,9 @@ function App() {
       const keyframeOrder = parseInt(parts[2]);
       const videoFile = `${batch}_${videoNum}`;
 
-      const mediaInfoPath = `/media-info-aic25-b1/media-info/${videoFile}.json`;
+      // Get batch configuration to determine correct media info path
+      const batchConfig = getBatchConfig(videoId);
+      const mediaInfoPath = `/${batchConfig.mediaInfoDir}/${videoFile}.json`;
       const response = await fetch(mediaInfoPath);
       if (!response.ok) {
         throw new Error(`Could not load video info for ${videoFile}`);
@@ -310,8 +340,9 @@ function App() {
     const baseVideoId = `${batch}_${videoNum}`;
 
     try {
-      // Load the keyframes index
-      const indexResponse = await fetch('/media-info-aic25-b1/media-info/keyframes_index.json');
+      // Load the keyframes index based on video batch
+      const batchConfig = getBatchConfig(videoId);
+      const indexResponse = await fetch(`/${batchConfig.mediaInfoDir}/keyframes_index.json`);
 
       if (indexResponse.ok) {
         const keyframesIndex = await indexResponse.json();
@@ -507,50 +538,82 @@ function App() {
       let mappedResults;
       
       if (temporalSearch.searchMode === "consolidated") {
-        // Consolidated mode: Handle video timeline results
-        mappedResults = data.results.map(videoTimeline => {
-          // Map each video timeline to a consolidated display format
-          const firstFrame = videoTimeline.image[0]; // Use first event frame as primary
-          const parts = firstFrame.split('_');
+        // Consolidated mode: Handle video timeline results from backend
+        mappedResults = data.results.map(videoResult => {
+          // Get the best frame sequence (first one from beam search)
+          const bestSequence = videoResult.frame_sequence[0] || [];
+          const firstFrame = bestSequence[0];
+          
+          if (!firstFrame) return null;
+          
+          const firstFrameId = firstFrame.id;
+          const parts = firstFrameId.split('_');
           const batch = parts[0];
           const videoNumber = parts[1];
           const baseVideoId = `${batch}_${videoNumber}`;
-          const imagePath = `/keyframes/${batch}/${baseVideoId}/${firstFrame}.jpg`;
+          const batchConfig = getBatchConfig(firstFrameId);
+          const imagePath = `/${batchConfig.keyframesDir}/${batch}/${baseVideoId}/${firstFrameId}.jpg`;
+
+          // Create timeline data structure with individual frame scores
+          const timelineData = {
+            video_id: videoResult.video,
+            score: videoResult.score,
+            image: bestSequence.map(frame => frame.id), // Array of frame IDs
+            frameScores: bestSequence.map(frame => frame.score), // Individual frame scores
+            frames: bestSequence // Full frame objects with id and score
+          };
 
           return {
-            videoId: firstFrame, // Primary frame ID for display
+            videoId: firstFrameId, // Primary frame ID for display
             image: imagePath,
-            caption: `${videoTimeline.video_id} | Timeline Score: ${videoTimeline.score.toFixed(3)}`,
-            videoTimeline: videoTimeline, // Store full timeline data
+            caption: `${videoResult.video} | Timeline Score: ${videoResult.score.toFixed(3)}`,
+            videoTimeline: timelineData, // Store timeline data with individual scores
             isConsolidated: true
           };
-        });
+        }).filter(result => result !== null);
       } else {
-        // Progressive mode: Handle event-by-event results
-        const finalResults = data.results[data.results.length - 1] || [];
+        // Progressive mode: Display identical to consolidated mode with complete timeline
+        // Backend returns array of video results with frame sequences
         
         let processedResults;
         if (appMode === "trake") {
-          processedResults = finalResults.slice(0, params.topK);
+          processedResults = data.results.slice(0, params.topK);
         } else {
-          processedResults = finalResults.slice(0, params.topK);
+          processedResults = data.results.slice(0, params.topK);
         }
         
-        mappedResults = processedResults.map(item => {
-          const videoId = item.image.trim();
-          const parts = videoId.split('_');
+        mappedResults = processedResults.map(videoResult => {
+          // Get the best frame sequence (first one from beam search)
+          const bestSequence = videoResult.frame_sequence[0] || [];
+          const firstFrame = bestSequence[0]; // Use first frame for primary display
+          
+          if (!firstFrame) return null;
+          
+          // Create timeline data structure with individual frame scores (same as consolidated)
+          const timelineData = {
+            video_id: videoResult.video,
+            score: videoResult.score,
+            image: bestSequence.map(frame => frame.id), // Array of frame IDs
+            frameScores: bestSequence.map(frame => frame.score), // Individual frame scores
+            frames: bestSequence
+          };
+
+          const firstFrameId = firstFrame.id;
+          const parts = firstFrameId.split('_');
           const batch = parts[0];
           const videoNumber = parts[1];
           const baseVideoId = `${batch}_${videoNumber}`;
-          const imagePath = `/keyframes/${batch}/${baseVideoId}/${videoId}.jpg`;
+          const batchConfig = getBatchConfig(firstFrameId);
+          const imagePath = `/${batchConfig.keyframesDir}/${batch}/${baseVideoId}/${firstFrameId}.jpg`;
 
           return {
-            ...item,
-            videoId: videoId,
+            videoId: firstFrameId, // Primary frame ID for display
             image: imagePath,
-            isConsolidated: false
+            caption: `${videoResult.video} | Timeline Score: ${videoResult.score.toFixed(3)}`,
+            videoTimeline: timelineData, // Store complete timeline data with individual scores
+            isConsolidated: true // Progressive mode with same timeline display as consolidated
           };
-        });
+        }).filter(result => result !== null);
       }
 
       // Store all intermediate results for potential future use
@@ -620,11 +683,11 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
-  // Generate CSV data for Timeline View (consolidated) results
+  // Generate CSV data for Timeline View (both consolidated and progressive) results
   const generateTimelineCSV = (results) => {
     const csvData = [];
     results.forEach(result => {
-      if (result.isConsolidated && result.videoTimeline && selectedItems.has(result.videoId)) {
+      if (result.videoTimeline && selectedItems.has(result.videoId)) {
         const videoId = result.videoTimeline.video_id;
         const frameSequence = result.videoTimeline.image.map(extractFrameTimestamp);
         csvData.push(`${videoId}, ${frameSequence.join(', ')}`);
@@ -656,11 +719,11 @@ function App() {
   const downloadCSV = () => {
     // Handle temporal search results
     if (searchModeType === "temporal" && temporalSearch.isActive && temporalSearch.results.length > 0) {
-      const hasConsolidatedResults = temporalSearch.results.some(result => 
-        result.isConsolidated && result.videoTimeline
+      const hasTimelineResults = temporalSearch.results.some(result => 
+        result.videoTimeline
       );
       
-      if (hasConsolidatedResults) {
+      if (hasTimelineResults) {
         const csvData = generateTimelineCSV(temporalSearch.results);
         downloadCSVFile(csvData, 'timeline_sequences');
       } else {
@@ -805,8 +868,9 @@ function App() {
 
     setLoadingVideoKeyframes(true);
     try {
-      // Load the keyframes index file
-      const response = await fetch('/media-info-aic25-b1/media-info/keyframes_index.json');
+      // Load the keyframes index file based on video batch
+      const batchConfig = getBatchConfig(videoId);
+      const response = await fetch(`/${batchConfig.mediaInfoDir}/keyframes_index.json`);
       
       if (!response.ok) {
         throw new Error('Keyframes index not found');
@@ -939,7 +1003,8 @@ function App() {
         const batch = parts[0];
         const videoNumber = parts[1];
         const baseVideoId = `${batch}_${videoNumber}`;
-        const imagePath = `/keyframes/${batch}/${baseVideoId}/${videoId}.jpg`;
+        const batchConfig = getBatchConfig(videoId);
+        const imagePath = `/${batchConfig.keyframesDir}/${batch}/${baseVideoId}/${videoId}.jpg`;
 
         return {
           ...item,
@@ -1525,89 +1590,78 @@ function App() {
               {currentPageData.map((item, idx) => (
                 <div key={idx} className={`card ${selectedItems.has(item.videoId) ? 'selected' : ''} ${item.isConsolidated ? 'consolidated-card' : ''}`}>
                   <div className="card-header-new">
-                    <div className="checkbox-caption-row">
-                      {appMode === "trake" && searchModeType === "normal" ? (
-                        <button
-                          className="trake-select-btn"
-                          onClick={() => selectVideoForTrake(item.videoId)}
-                        >
-                          🎬 Select Video
-                        </button>
-                      ) : appMode === "trake" && searchModeType === "temporal" ? (
-                        <div className="trake-temporal-controls">
-                          <input
-                            type="checkbox"
-                            className="card-checkbox-new"
-                            checked={selectedItems.has(item.videoId)}
-                            onChange={() => toggleItemSelection(item.videoId)}
-                          />
-                          <button
-                            className="trake-select-btn"
-                            onClick={() => selectVideoForTrake(item.videoId)}
-                            style={{marginLeft: "8px", padding: "2px 6px", fontSize: "10px"}}
-                          >
-                            🎬 View Frames
-                          </button>
-                        </div>
-                      ) : !item.isConsolidated ? (
-                        <input
-                          type="checkbox"
-                          className="card-checkbox-new"
-                          checked={selectedItems.has(item.videoId)}
-                          onChange={() => toggleItemSelection(item.videoId)}
-                        />
-                      ) : null}
-                      {!item.isConsolidated && <span className="card-caption-new">{item.caption}</span>}
-                    </div>
-                    
-                    {/* Consolidated Mode: Show video timeline with consecutive events in same row */}
-                    {item.isConsolidated && item.videoTimeline && (
+                    {!item.videoTimeline && <span className="card-caption-new">{item.caption}</span>}
+                  </div>
+                  
+                  {/* Timeline Mode: Show video timeline with consecutive events in same row (both consolidated and progressive) */}
+                  {item.videoTimeline && (
                       <div className="consolidated-timeline-container">
                         <div className="timeline-header-above-frames">
-                          <input
-                            type="checkbox"
-                            className="timeline-checkbox"
-                            checked={selectedItems.has(item.videoId)}
-                            onChange={() => toggleItemSelection(item.videoId)}
-                          />
-                          <span className="timeline-score-header">
-                            {item.videoTimeline.video_id} | Timeline Score: {item.videoTimeline.score.toFixed(3)}
-                          </span>
+                          <div className="timeline-header-content">
+                            <div className="timeline-left-section">
+                              <input
+                                type="checkbox"
+                                className="timeline-checkbox"
+                                checked={selectedItems.has(item.videoId)}
+                                onChange={() => toggleItemSelection(item.videoId)}
+                              />
+                              <span className="timeline-score-header">
+                                {item.videoTimeline.video_id} | Timeline Score: {item.videoTimeline.score.toFixed(3)}
+                              </span>
+                            </div>
+                            <button
+                              className="timeline-view-frames-btn"
+                              onClick={() => {
+                                if (appMode === 'trake') {
+                                  selectVideoForTrake(item.videoId);
+                                }
+                              }}
+                              title="View detailed frame sequence"
+                            >
+                              🎬 View Frames
+                            </button>
+                          </div>
                         </div>
                         <div 
                           className="timeline-events-horizontal"
-                          style={{'--frame-count': item.videoTimeline.image.length}}
+                          style={{'--frame-count': item.videoTimeline.frames.length}}
                         >
-                          {item.videoTimeline.image.map((frameId, eventIdx) => (
-                            <>
-                              <div key={eventIdx} className="timeline-event-frame">
+                          {item.videoTimeline.frames.map((frameObj, eventIdx) => (
+                            <div key={eventIdx} className="timeline-event-frame">
                                 <img
                                   src={(() => {
-                                    const parts = frameId.split('_');
+                                    const parts = frameObj.id.split('_');
                                     const batch = parts[0];
                                     const videoNumber = parts[1];
                                     const baseVideoId = `${batch}_${videoNumber}`;
-                                    return `/keyframes/${batch}/${baseVideoId}/${frameId}.jpg`;
+                                    const batchConfig = getBatchConfig(frameObj.id);
+                                    return `/${batchConfig.keyframesDir}/${batch}/${baseVideoId}/${frameObj.id}.jpg`;
                                   })()}
                                   alt={`Event ${eventIdx + 1}`}
                                   className="event-frame-image"
-                                  onClick={() => handleKeyframeClick(frameId)}
+                                  onClick={() => handleKeyframeClick(frameObj.id)}
                                   onError={(e) => {
                                     e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
                                     e.target.style.filter = "grayscale(1)";
                                   }}
-                                  title={`🎥 Click to open video at timestamp ${frameId}`}
+                                  title={`🎥 Click to open video at timestamp ${frameObj.id}`}
                                 />
                                 <div className="event-frame-caption">
                                   <div className="event-number">E{eventIdx + 1}</div>
-                                  <div className="event-frame-id">{frameId}</div>
+                                  <div className="event-frame-id">{frameObj.id}</div>
+                                  <div className="event-frame-score">Score: {frameObj.score.toFixed(3)}</div>
                                 </div>
-                              </div>
-                              {eventIdx < item.videoTimeline.image.length - 1 && (
+                              {eventIdx < item.videoTimeline.frames.length - 1 && (
                                 <div className="event-arrow">→</div>
                               )}
-                            </>
+                            </div>
                           ))}
+                        </div>
+                        <div className="timeline-summary">
+                          <div className="sequence-info">
+                            🎬 Video Sequence: {item.videoTimeline.frames.length} events detected | 
+                            Avg Frame Score: {(item.videoTimeline.frameScores.reduce((a, b) => a + b, 0) / item.videoTimeline.frameScores.length).toFixed(3)}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -1623,7 +1677,6 @@ function App() {
                         />
                       </div>
                     )}
-                  </div>
                   
                   {/* Only show main image for non-consolidated cards */}
                   {!item.isConsolidated && (
