@@ -2,6 +2,7 @@
 
 # dependencies
 /public/keyframes
+/public/keyframes-b2
 /node_modules
 /.pnp
 .pnp.js
