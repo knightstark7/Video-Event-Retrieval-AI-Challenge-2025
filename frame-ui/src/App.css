@@ -110,15 +110,25 @@ body {
   background: rgba(0, 123, 255, 0.1);
   border-radius: 8px;
   border: 1px solid rgba(0, 123, 255, 0.3);
+}
+
+.timeline-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.timeline-left-section {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.timeline-header-above-frames .timeline-checkbox {
+.timeline-checkbox {
   accent-color: #007bff;
   transform: scale(1.3);
-  margin-right: 4px;
+  cursor: pointer;
 }
 
 .timeline-header-above-frames .timeline-score-header {
@@ -126,6 +136,43 @@ body {
   font-size: 16px;
   font-weight: 600;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  flex: 1;
+}
+
+.timeline-view-frames-btn {
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+  min-width: 110px;
+  text-align: center;
+}
+
+.timeline-view-frames-btn:hover {
+  background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.4);
+}
+
+.timeline-view-frames-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+}
+
+.timeline-view-frames-btn.selected {
+  background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+  box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
+}
+
+.timeline-view-frames-btn.selected:hover {
+  background: linear-gradient(135deg, #1e7e34 0%, #155724 100%);
+  box-shadow: 0 4px 8px rgba(40, 167, 69, 0.4);
 }
 
 /* Horizontal Timeline Events */
@@ -233,6 +280,18 @@ body {
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.9);
   border: 1px solid rgba(0, 123, 255, 0.3);
   margin-top: 2px;
+}
+
+.event-frame-score {
+  font-size: 9px;
+  color: #ffc107;
+  font-weight: bold;
+  margin: 2px 0;
+  background: rgba(255, 193, 7, 0.3);
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-align: center;
+  border: 1px solid rgba(255, 193, 7, 0.5);
 }
 
 /* Event Frame Caption Container */
@@ -1328,21 +1387,6 @@ body {
   min-height: 5px;
 }
 
-.checkbox-caption-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 24px;
-}
-
-.card-checkbox-new {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: #4caf50;
-  flex-shrink: 0;
-}
 
 .card-caption-new {
   color: #e6e6e6;
