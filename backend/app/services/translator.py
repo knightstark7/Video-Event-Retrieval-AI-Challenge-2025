@@ -10,13 +10,13 @@ class Translator:
 
     def _clean_prefix(self, text: str) -> str:
         return re.sub(r"^(en|vi)\s*:\s*", "", text.strip(), flags=re.IGNORECASE)
-    
+
     def translate(self, text: str, source_lang: str = "en", max_length: int = 128) -> str:
         content = f"{source_lang}: {text}"
         inputs = self.tokenizer(
-            content, 
-            return_tensors="pt", 
-            truncation=True, 
+            content,
+            return_tensors="pt",
+            truncation=True,
             max_length=max_length).to(self.device)
         with torch.no_grad():
             outputs = self.model.generate(**inputs, max_length=max_length)
