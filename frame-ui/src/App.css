@@ -131,6 +131,25 @@ body {
   cursor: pointer;
 }
 
+/* Regular card checkbox styling */
+.regular-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.regular-card-checkbox {
+  accent-color: #007bff;
+  transform: scale(1.2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.regular-card-checkbox:hover {
+  transform: scale(1.3);
+}
+
 .timeline-header-above-frames .timeline-score-header {
   color: #e6e6e6;
   font-size: 16px;

@@ -166,7 +166,7 @@ function App() {
       }
       const data = await response.json();
       setIsConnected(true);
-      return data.results;
+      return data.results || [];
     } catch (error) {
       setIsConnected(false);
       alert(`Search failed: ${error.message}\nPlease check your backend URL.`);
@@ -535,11 +535,20 @@ function App() {
       const endTime = Date.now();
       const searchDuration = ((endTime - startTime) / 1000).toFixed(2);
       
+      // Check if the response has the expected structure
+      if (!data || (!data.results && !data.error)) {
+        throw new Error("Invalid response structure from backend");
+      }
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
       let mappedResults;
       
       if (temporalSearch.searchMode === "consolidated") {
         // Consolidated mode: Handle video timeline results from backend
-        mappedResults = data.results.map(videoResult => {
+        mappedResults = (data.results || []).map(videoResult => {
           // Get the best frame sequence (first one from beam search)
           const bestSequence = videoResult.frame_sequence[0] || [];
           const firstFrame = bestSequence[0];
@@ -577,9 +586,9 @@ function App() {
         
         let processedResults;
         if (appMode === "trake") {
-          processedResults = data.results.slice(0, params.topK);
+          processedResults = (data.results || []).slice(0, params.topK);
         } else {
-          processedResults = data.results.slice(0, params.topK);
+          processedResults = (data.results || []).slice(0, params.topK);
         }
         
         mappedResults = processedResults.map(videoResult => {
@@ -997,7 +1006,7 @@ function App() {
       const endTime = performance.now();
       const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
 
-      const mappedResults = data.map(item => {
+      const mappedResults = (data || []).map(item => {
         const videoId = item.image.trim();
         const parts = videoId.split('_');
         const batch = parts[0];
@@ -1590,7 +1599,18 @@ function App() {
               {currentPageData.map((item, idx) => (
                 <div key={idx} className={`card ${selectedItems.has(item.videoId) ? 'selected' : ''} ${item.isConsolidated ? 'consolidated-card' : ''}`}>
                   <div className="card-header-new">
-                    {!item.videoTimeline && <span className="card-caption-new">{item.caption}</span>}
+                    {!item.videoTimeline && (
+                      <div className="regular-card-header">
+                        <input
+                          type="checkbox"
+                          className="regular-card-checkbox"
+                          checked={selectedItems.has(item.videoId)}
+                          onChange={() => toggleItemSelection(item.videoId)}
+                          title="Select for CSV export"
+                        />
+                        <span className="card-caption-new">{item.caption}</span>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Timeline Mode: Show video timeline with consecutive events in same row (both consolidated and progressive) */}
