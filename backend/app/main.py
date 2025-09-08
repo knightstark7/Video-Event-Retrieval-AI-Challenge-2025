@@ -7,6 +7,7 @@ from pyngrok import ngrok
 import socket
 import threading
 import time
+import argparse
 
 
 app = FastAPI(
@@ -28,14 +29,6 @@ PORT = 8000
 HOST = "0.0.0.0"
 NGROK_AUTH_TOKEN = "31JYCDRSSloOw7lPnlEos7Y8sTv_5PUsnG81esTd4PAMccnDz"
 
-if NGROK_AUTH_TOKEN and NGROK_AUTH_TOKEN != "YOUR_NGROK_TOKEN_HERE":
-    ngrok.set_auth_token(NGROK_AUTH_TOKEN)
-    print("✅ Ngrok auth token set")
-else:
-    print("⚠️ NGROK_AUTH_TOKEN not configured. Update your environment variable.")
-    print("   Get token at: https://dashboard.ngrok.com/get-started/your-authtoken")
-
-
 """Check if a local TCP port is already in use."""
 def is_port_in_use(port: int, host="127.0.0.1") -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -48,7 +41,10 @@ def run_server():
 
 
 """Start ngrok tunnel and print URLs"""
-def start_ngrok():
+def start_ngrok(auth_token: str = None):
+    if auth_token:
+        ngrok.set_auth_token(auth_token)
+        print("✅ Ngrok auth token set")
     try:
         # Clean old tunnels
         for t in ngrok.get_tunnels():
@@ -83,12 +79,18 @@ def start_ngrok():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run FastAPI server with optional ngrok tunnel")
+    parser.add_argument("--ngrok", type=str, default=None, help="Ngrok auth token")
+    args = parser.parse_args()
+    if args.ngrok:
+        NGROK_AUTH_TOKEN = args.ngrok
+
     if not is_port_in_use(PORT):
         print(f"🚀 Starting FastAPI server on {HOST}:{PORT}")
         server_thread = threading.Thread(target=run_server, daemon=True)
         server_thread.start()
         time.sleep(3)
         print("✅ Server started successfully")
-        start_ngrok()
+        start_ngrok(NGROK_AUTH_TOKEN)
     else:
         print(f"🔁 Server already running on http://localhost:{PORT}")
