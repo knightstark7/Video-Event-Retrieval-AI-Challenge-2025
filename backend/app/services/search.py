@@ -33,7 +33,6 @@ ClipSearch = SearchEngine(QDRANT_CLIENT_H, CLIP_collection, DEVICE)
 BGECaptionSearch = SearchEngine(QDRANT_CLIENT_K, BGE_collection, DEVICE, model="AITeamVN/Vietnamese_Embedding_v2")
 GTECaptionSearch = SearchEngine(QDRANT_CLIENT_K, GTE_collection, DEVICE, model="dangvantuan/vietnamese-document-embedding")
 
-
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
                    alpha: float = 0.5, frame_ids: Optional[List] = None):
     if mode == "clip":

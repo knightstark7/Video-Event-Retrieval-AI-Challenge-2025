@@ -37,7 +37,7 @@ def is_port_in_use(port: int, host="127.0.0.1") -> bool:
 
 """Run FastAPI server"""
 def run_server():
-    uvicorn.run("app.main:app", host=HOST, port=PORT, log_level="info", reload=True)
+    uvicorn.run("app.main:app", host=HOST, port=PORT, log_level="info", reload=False)
 
 
 """Start ngrok tunnel and print URLs"""
