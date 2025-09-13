@@ -52,6 +52,7 @@ function App() {
   const [videoPlayer, setVideoPlayer] = useState(null);
   const [timeInput, setTimeInput] = useState("");
   const [calculatedFrameOrder, setCalculatedFrameOrder] = useState(null);
+  const [videoPlayerPreference, setVideoPlayerPreference] = useState("embedded"); // "embedded" or "mpc"
   
   // Video Filter State
   const [videoFilter, setVideoFilter] = useState("all"); // "all" or specific video ID
@@ -302,14 +303,24 @@ function App() {
       const youtubeVideoId = videoIdMatch ? videoIdMatch[1] : null;
 
       if (youtubeVideoId) {
-        setVideoPlayer({
-          videoId: youtubeVideoId,
-          timestamp: finalTimestamp,
-          title: videoInfo.title || `Video ${videoFile}`,
-          keyframe: videoId,
-          fps: videoFPS,
-          videoDuration: videoDuration
-        });
+        if (videoPlayerPreference === "mpc") {
+          // Open in MPC with precise frame info
+          openInMPC(youtubeUrl, finalTimestamp, videoInfo.title || `Video ${videoFile}`, {
+            frameOrder: keyframeOrder,
+            fps: videoFPS,
+            videoId: videoId
+          });
+        } else {
+          // Use embedded player
+          setVideoPlayer({
+            videoId: youtubeVideoId,
+            timestamp: finalTimestamp,
+            title: videoInfo.title || `Video ${videoFile}`,
+            keyframe: videoId,
+            fps: videoFPS,
+            videoDuration: videoDuration
+          });
+        }
         
         // Reset calculator when opening new video  
         setTimeInput("");
@@ -323,6 +334,82 @@ function App() {
       alert(`Error opening video: ${error.message}`);
     } finally {
       setLoadingVideo(null);
+    }
+  };
+
+  // Direct MPC Integration Function via Local Service
+  const openInMPC = async (youtubeUrl, timestamp, videoTitle = '', frameInfo = null) => {
+    try {
+      console.log(`🎬 Opening MPC: ${videoTitle}`);
+      console.log(`📺 URL: ${youtubeUrl}`);
+      console.log(`⏰ Timestamp: ${timestamp}s`);
+      if (frameInfo) {
+        console.log(`🎯 Frame Order: ${frameInfo.frameOrder} (${frameInfo.videoId})`);
+        console.log(`🎞️ FPS: ${frameInfo.fps}`);
+      }
+
+      const response = await fetch('http://127.0.0.1:3001/launch-mpc', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          youtubeUrl: youtubeUrl,
+          timestamp: timestamp,
+          videoTitle: videoTitle,
+          frameInfo: frameInfo
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        console.log('✅ MPC launched successfully:', result);
+        // Optional: Show brief success notification
+        setTimeout(() => {
+          alert(`✅ MPC launched successfully!\n\n🎬 Player: ${result.mpcPath.split('\\').pop()}\n⏰ Timestamp: ${timestamp}s`);
+        }, 500);
+      } else {
+        throw new Error(result.error || 'Failed to launch MPC');
+      }
+
+    } catch (error) {
+      console.error('❌ MPC launch failed:', error);
+      
+      // Check if it's a connection error (service not running)
+      if (error.message.includes('fetch')) {
+        const startService = window.confirm(
+          `❌ MPC Launcher Service not running!\n\n` +
+          `To use direct MPC integration:\n` +
+          `1. Open terminal in: mpc-launcher folder\n` +
+          `2. Run: npm install\n` +
+          `3. Run: npm start\n\n` +
+          `Click OK for manual MPC instructions, or Cancel to use embedded player.`
+        );
+        
+        if (startService) {
+          // Fallback to manual instructions
+          const urlWithTimestamp = `${youtubeUrl}&t=${timestamp}s`;
+          const confirmation = window.confirm(
+            `📋 Manual MPC Instructions:\n\n` +
+            `1. Open MPC-HC or MPC-BE\n` +
+            `2. Press Ctrl+U (Open URL)\n` +
+            `3. Paste this URL:\n${urlWithTimestamp}\n\n` +
+            `Click OK to copy URL to clipboard.`
+          );
+          
+          if (confirmation) {
+            navigator.clipboard.writeText(urlWithTimestamp).then(() => {
+              alert('✅ YouTube URL copied to clipboard!');
+            }).catch(() => {
+              window.prompt('Copy this URL:', urlWithTimestamp);
+            });
+          }
+        }
+      } else {
+        // MPC not found or other error
+        alert(`❌ Could not launch MPC: ${error.message}\n\nPlease ensure MPC-HC or MPC-BE is installed.`);
+      }
     }
   };
 
@@ -1437,6 +1524,25 @@ function App() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Video Player Preference Section */}
+          <div className="video-player-section">
+            <label className="video-player-label">Video Player:</label>
+            <select
+              className="video-player-select"
+              value={videoPlayerPreference}
+              onChange={(e) => setVideoPlayerPreference(e.target.value)}
+              title="Choose how to open video results"
+            >
+              <option value="embedded">🌐 Embedded Player (Web)</option>
+              <option value="mpc">🎬 MPC-HC/BE (External)</option>
+            </select>
+            <div className="video-player-description">
+              {videoPlayerPreference === "embedded" 
+                ? "Opens videos in built-in web player with timestamp" 
+                : "Opens videos in MPC with yt-dlp support and precise timestamp"}
+            </div>
           </div>
 
           {((results.length > 0 && appMode !== "trake") || (appMode === "trake" && trakeMode.eventSequences.length > 0) || (searchModeType === "temporal" && temporalSearch.isActive)) && (

@@ -10,24 +10,44 @@ Multimodal search system for video content using CLIP and Vietnamese text embedd
 
 ## 🚀 Quick Start
 
-### 1. Backend Setup
-1. Upload `videoframeretrievalsystem.ipynb` to Kaggle
-2. Enable GPU + Internet → Run all cells
-3. Copy ngrok URL: `https://xxxxx.ngrok-free.app`
-
-### 2. Frontend Setup
+### 1. Frontend (React UI)
 ```bash
 cd frame-ui
 npm install
-npm start
+npm start    # Opens http://localhost:3000
 ```
 
-### 3. Usage
-1. **Settings**: Enter backend URL
-2. **Search Type**: Text or Image
-3. **App Mode**: Textual KIS / Q&A / TRAKE
-4. **Search**: Enter query or upload image
-5. **Export**: Select frames → Download CSV
+### 2. Backend (Kaggle)
+1. Upload `videoframeretrievalsystem.ipynb` to Kaggle
+2. Enable GPU + Internet → Run all cells
+3. Copy ngrok URL: `https://xxxxx.ngrok-free.app`
+4. Paste URL in React UI settings
+
+### 3. MPC Integration (Optional)
+```bash
+cd mpc-launcher
+npm install
+npm start    # Starts MPC service on port 3001
+```
+
+## 🎬 MPC Configuration
+
+### Prerequisites
+- **Install MPC**:
+  - MPC-HC: https://mpc-hc.org/
+  - MPC-BE: https://sourceforge.net/projects/mpcbe/
+  - K-Lite Codec Pack (includes MPC-HC64)
+
+- **Install yt-dlp**:
+  - Download: https://github.com/yt-dlp/yt-dlp/releases
+  - Place `yt-dlp.exe` in MPC folder or add to PATH
+
+### UI Configuration
+1. **Start MPC Service**: `cd mpc-launcher && npm start`
+2. **Open React UI**: http://localhost:3000
+3. **Settings** → **Video Player**: Select **"🎬 MPC-HC/BE (External)"**
+4. **Click any frame** → MPC opens automatically at exact timestamp!
+
 
 ## 🔧 API
 
