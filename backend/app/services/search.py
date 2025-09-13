@@ -79,6 +79,38 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
 
         if caption_mode == "bge":
             caption_nodes = BGECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+        else: 
+            caption_nodes = GTECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+
+        
+        combined_scores = defaultdict(float)
+        weights= (alpha, 1 - alpha)
+        for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1])):
+            for node in nodes:
+                combined_scores[node["id"]] += node["score"] * w
+
+        top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
+
+        return [{"id": video_id, "score": score} for video_id, score in top_results]
+
+def retrieve_have_subtitles(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
+                   alpha: float = 0.5, frame_ids: Optional[List] = None):
+    if mode == "clip":
+        clip_nodes = ClipSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+        return clip_nodes
+    
+    elif mode == "vintern":
+        if caption_mode == "bge":
+            caption_nodes = BGECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+        else: 
+            caption_nodes = GTECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+        return caption_nodes
+
+    else: 
+        clip_nodes = ClipSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+
+        if caption_mode == "bge":
+            caption_nodes = BGECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
             subtitles_nodes = BGESubtitlesSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
         else: 
             caption_nodes = GTECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
@@ -94,7 +126,7 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
 
         return [{"id": video_id, "score": score} for video_id, score in top_results]
-
+    
 def retrieve_from_image(contents: bytes, topK: int):
     """
     Image-based search using CLIP embeddings

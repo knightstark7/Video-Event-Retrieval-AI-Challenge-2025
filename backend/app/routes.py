@@ -3,7 +3,7 @@ from typing import Optional
 import json, time
 from typing import List, Optional
 from app.config import DEVICE, CLIP_collection, BGE_collection, GTE_collection
-from app.services.search import retrieve_frame, retrieve_from_image, temporal_search, \
+from app.services.search import retrieve_frame, retrieve_from_image, temporal_search, retrieve_have_subtitles, \
     ClipSearch, BGECaptionSearch, GTECaptionSearch, VIDEO_TO_FRAMES
 
 router = APIRouter()
@@ -29,8 +29,10 @@ async def api_search(query: Optional[str] = Form(None), topK: int = Form(...),
         else:
             if query is None or query.strip() == "":
                 return {"error": "No query provided for text mode"}
-            results = retrieve_frame(query=query, topK=topK, mode=mode,
+            results = retrieve_have_subtitles(query=query, topK=topK, mode=mode,
                                     caption_mode=caption_mode, alpha=alpha)
+            # results = retrieve_frame(query=query, topK=topK, mode=mode,
+            #                         caption_mode=caption_mode, alpha=alpha)
             search_info = f"{mode.upper()} mode with {caption_mode.upper()} model"
 
         duration = time.time() - start_time
