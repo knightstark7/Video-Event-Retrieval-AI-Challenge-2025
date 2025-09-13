@@ -2,6 +2,8 @@ from typing import Optional
 from app.services.search_engine import SearchEngine
 from typing import List, Optional
 from app.config import DEVICE, CLIP_collection, BGE_collection, GTE_collection
+from .embeddings import CLIPEmbedding, CaptionEmbedding
+from .translator import Translator
 from app.clients.qdrant_clients import QDRANT_CLIENT_H, QDRANT_CLIENT_K
 from collections import defaultdict
 import torch
@@ -29,9 +31,35 @@ while True:
         break
 
 
-ClipSearch = SearchEngine(QDRANT_CLIENT_H, CLIP_collection, DEVICE)
-BGECaptionSearch = SearchEngine(QDRANT_CLIENT_K, BGE_collection, DEVICE, model="AITeamVN/Vietnamese_Embedding_v2")
-GTECaptionSearch = SearchEngine(QDRANT_CLIENT_K, GTE_collection, DEVICE, model="dangvantuan/vietnamese-document-embedding")
+translator = Translator(device=DEVICE)
+clip_embed = CLIPEmbedding(device=DEVICE)
+
+bge_embed = CaptionEmbedding(model_name="AITeamVN/Vietnamese_Embedding_v2", device=DEVICE)
+
+gte_embed = CaptionEmbedding(model_name="dangvantuan/vietnamese-document-embedding",
+                             device=DEVICE,
+                             trust_remote_code=True)
+
+
+ClipSearch = SearchEngine(qdrant_client=QDRANT_CLIENT_H,
+                          collection_name=CLIP_collection,
+                          device=DEVICE, model=clip_embed, translator=translator)
+
+BGECaptionSearch = SearchEngine(qdrant_client=QDRANT_CLIENT_K,
+                                collection_name=BGE_collection['Caption'],
+                                device=DEVICE, model=bge_embed, translator=None)
+BGESubtitlesSearch = SearchEngine(qdrant_client=QDRANT_CLIENT_H,
+                                collection_name=BGE_collection['Subtitle'],
+                                device=DEVICE, model=bge_embed, translator=None)
+
+GTECaptionSearch = SearchEngine(qdrant_client=QDRANT_CLIENT_K,
+                                collection_name=GTE_collection['Caption'],
+                                device=DEVICE, model=gte_embed, translator=None)
+
+GTESubtitlesSearch = SearchEngine(qdrant_client=QDRANT_CLIENT_H,
+                                collection_name=BGE_collection['Subtitle'],
+                                device=DEVICE, model=gte_embed, translator=None)
+
 
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
                    alpha: float = 0.5, frame_ids: Optional[List] = None):
@@ -51,15 +79,17 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
 
         if caption_mode == "bge":
             caption_nodes = BGECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+            subtitles_nodes = BGESubtitlesSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
         else: 
             caption_nodes = GTECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+            subtitles_nodes = GTECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+
         
         combined_scores = defaultdict(float)
-        for node in caption_nodes:
-            combined_scores[node["id"]] += node["score"] * alpha
-
-        for node in clip_nodes:
-            combined_scores[node["id"]] += node["score"] * (1 - alpha)
+        weights= (0.4, 0.4, 0.2)
+        for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1]), (subtitles_nodes, weights[2])):
+            for node in nodes:
+                combined_scores[node["id"]] += node["score"] * w
 
         top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
 

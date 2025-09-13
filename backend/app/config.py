@@ -15,5 +15,12 @@ CORS_SETTINGS = {
 
 # Collection names
 CLIP_collection = "Image"
-BGE_collection = "BGE_Caption"
-GTE_collection = "GTE_Caption"
+BGE_collection = {
+    'Caption': "BGE_Caption",
+    'Subtitle': "BGE_subtitles"
+}
+
+GTE_collection = {
+    'Caption': "GTE_Caption",
+    'Subtitle': "GTE_subtitles"
+}
