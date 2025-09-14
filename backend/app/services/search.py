@@ -114,7 +114,7 @@ def retrieve_have_subtitles(query: str, topK: int, mode: str = "hybrid", caption
             subtitles_nodes = BGESubtitlesSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
         else: 
             caption_nodes = GTECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
-            subtitles_nodes = GTECaptionSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
+            subtitles_nodes = GTESubtitlesSearch.retrieve(query=query, topK=topK, frame_ids=frame_ids)
 
         
         combined_scores = defaultdict(float)
