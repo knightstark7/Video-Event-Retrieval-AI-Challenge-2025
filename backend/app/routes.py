@@ -1,10 +1,8 @@
 from fastapi import APIRouter, Form, UploadFile, File
 from typing import Optional
 import json, time
-from typing import List, Optional
-from app.config import DEVICE, CLIP_collection, BGE_collection, GTE_collection
-from app.services.search import retrieve_frame, retrieve_from_image, temporal_search, retrieve_have_subtitles, \
-    ClipSearch, BGECaptionSearch, GTECaptionSearch, VIDEO_TO_FRAMES
+from app.services.search import retrieve_frame, retrieve_from_image, temporal_search,\
+    search_engines, VIDEO_TO_FRAMES, DEVICE
 
 router = APIRouter()
 
@@ -29,10 +27,8 @@ async def api_search(query: Optional[str] = Form(None), topK: int = Form(...),
         else:
             if query is None or query.strip() == "":
                 return {"error": "No query provided for text mode"}
-            results = retrieve_have_subtitles(query=query, topK=topK, mode=mode,
+            results = retrieve_frame(query=query, topK=topK, mode=mode,
                                     caption_mode=caption_mode, alpha=alpha)
-            # results = retrieve_frame(query=query, topK=topK, mode=mode,
-            #                         caption_mode=caption_mode, alpha=alpha)
             search_info = f"{mode.upper()} mode with {caption_mode.upper()} model"
 
         duration = time.time() - start_time
@@ -103,17 +99,7 @@ async def health_check():
     return {
         "status": "healthy",
         "device": DEVICE,
-        "models_loaded": {
-            "clip": ClipSearch is not None,
-            "bge": BGECaptionSearch is not None,
-            "gte": GTECaptionSearch is not None,
-            "translator": ClipSearch.translator is not None
-        },
-        "collections": {
-            "clip": CLIP_collection,
-            "bge": BGE_collection,
-            "gte": GTE_collection
-        },
+        "search_engines": search_engines,
         "frame_count": sum(map(len, VIDEO_TO_FRAMES.values())),
         "video_count": len(VIDEO_TO_FRAMES),
         "supported_search_modes": ["progressive", "consolidated"]

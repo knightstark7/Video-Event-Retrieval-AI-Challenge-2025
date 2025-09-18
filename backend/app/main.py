@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import router
-from app.config import CORS_SETTINGS
 import uvicorn
 from pyngrok import ngrok
 import socket
@@ -10,10 +9,14 @@ import time
 import argparse
 
 
-app = FastAPI(
-    title="Video Event Retrieval API v2.0",
-    description="Enhanced multimodal search with temporal capabilities"
-)
+app = FastAPI(title="Video Event Retrieval API v2.0", description="Enhanced multimodal search with temporal capabilities")
+
+CORS_SETTINGS = {
+    "allow_origins": ["*"],
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
 
 app.add_middleware(
     CORSMiddleware,
