@@ -6,7 +6,6 @@ import open_clip
 from PIL import Image
 from qdrant_client import models
 from app.clients.qdrant_clients import QDRANT_CLIENT_H, QDRANT_CLIENT_K
-from app.services.search_engine import SearchEngine
 from sentence_transformers import SentenceTransformer
 from .translator import Translator
 from .embeddings import Embedding
@@ -92,64 +91,62 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
         results = [{"id": node.payload.get("id", "").strip(), "score": node.score} for node in nodes]   
     return results
 
+def retrieve_from_image(contents: bytes, topK: int):
+    image = Image.open(io.BytesIO(contents)).convert("RGB")
+    clip_vector_query = clip_embedder._get_image_embedding(image)
+    results = retrieve_with_vector(search_engine=search_engines['ClipSearch'], vector_query=clip_vector_query, 
+                                   topK=topK, frame_ids=None)
+    return results
+
+def retrieve_by_clip(query: str, topK: int, frame_ids: Optional[List] = None): 
+    clip_query = translator.translate(query)
+    clip_vector_query = clip_embedder._get_query_embedding(clip_query)
+    clip_nodes = retrieve_with_vector(
+        search_engine=search_engines['ClipSearch'],
+        vector_query=clip_vector_query, 
+        topK=topK,
+        frame_ids=frame_ids
+    )
+    return clip_nodes
+
+def retrieve_by_captions(query: str, caption_mode: str, topK: int,
+                           frame_ids: Optional[List] = None, 
+                           use_caption=True, use_subtitles=False):
+    if caption_mode == "bge":
+        vector_query = bge_embedder._get_query_embedding(query)
+        caption_engine = search_engines["BGECaption"]
+        subtitle_engine = search_engines["BGESubtitles"]
+    else:
+        vector_query = gte_embedder._get_query_embedding(query)
+        caption_engine = search_engines["GTECaption"]
+        subtitle_engine = search_engines["GTESubtitles"]
+
+    results = {}
+    if use_caption:
+        results["caption"] = retrieve_with_vector(search_engine=caption_engine, vector_query=vector_query,
+                                                  topK=topK, frame_ids=frame_ids)
+    if use_subtitles:
+        results["subtitles"] = retrieve_with_vector(search_engine=subtitle_engine, vector_query=vector_query,
+                                                    topK=topK, frame_ids=frame_ids)
+    return results
+
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
                    alpha: float = 0.5, frame_ids: Optional[List] = None):
     if mode == "clip":
-        clip_query = translator.translate(query)
-        clip_vector_query = clip_embedder._get_query_embedding(clip_query)
-        clip_nodes = retrieve_with_vector(
-            search_engine=search_engines['ClipSearch'],
-            vector_query=clip_vector_query, 
-            topK=topK,
-            frame_ids=frame_ids
-        )
+        clip_nodes = retrieve_by_clip(query=query, topK=topK, frame_ids=frame_ids)
         return clip_nodes
     
     elif mode == "vintern":
-        if caption_mode == "bge":
-            caption_vector_query = bge_embedder._get_query_embedding(query)
-            caption_nodes = retrieve_with_vector(
-                search_engine=search_engines["BGECaption"],
-                vector_query=caption_vector_query, 
-                topK=topK,
-                frame_ids=frame_ids
-            )
-        else: 
-            caption_vector_query = gte_embedder._get_query_embedding(query)
-            caption_nodes = retrieve_with_vector(
-                search_engine=search_engines["BGECaption"],
-                vector_query=caption_vector_query, 
-                topK=topK,
-                frame_ids=frame_ids
-            )
-        return caption_nodes
+        results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
+                                         frame_ids=frame_ids, use_caption=True, use_subtitles=False)
+        return results['caption']
 
     else: 
-        clip_query = translator.translate(query)
-        clip_vector_query = clip_embedder._get_query_embedding(clip_query)
-        clip_nodes = retrieve_with_vector(
-            search_engine=search_engines['ClipSearch'],
-            vector_query=clip_vector_query, 
-            topK=topK,
-            frame_ids=frame_ids
-        )
+        clip_nodes = retrieve_by_clip(query=query, topK=topK, frame_ids=frame_ids)
 
-        if caption_mode == "bge":
-            caption_vector_query = bge_embedder._get_query_embedding(query)
-            caption_nodes = retrieve_with_vector(
-                search_engine=search_engines["BGECaption"],
-                vector_query=caption_vector_query, 
-                topK=topK,
-                frame_ids=frame_ids
-            )
-        else: 
-            caption_vector_query = gte_embedder._get_query_embedding(query)
-            caption_nodes = retrieve_with_vector(
-                search_engine=search_engines["BGECaption"],
-                vector_query=caption_vector_query, 
-                topK=topK,
-                frame_ids=frame_ids
-            )
+        results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
+                                         frame_ids=frame_ids, use_caption=True, use_subtitles=False)
+        caption_nodes = results['caption']
 
         combined_scores = defaultdict(float)
         weights= (alpha, 1 - alpha)
@@ -161,20 +158,6 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
 
         return [{"id": video_id, "score": score} for video_id, score in top_results]
     
-def retrieve_from_image(contents: bytes, topK: int):
-    """
-    Image-based search using CLIP embeddings
-    """
-    image = Image.open(io.BytesIO(contents)).convert("RGB")
-    clip_vector_query = clip_embedder._get_image_embedding(image)
-    results = retrieve_with_vector(
-        search_engine=search_engines['ClipSearch'],
-        vector_query=clip_vector_query, 
-        topK=topK,
-        frame_ids=None
-    )
-    return results
-
 def parse_image_name(image_name: str):
     parts = image_name.split("_", 2)
     vid = f"{parts[0]}_{parts[1]}"
