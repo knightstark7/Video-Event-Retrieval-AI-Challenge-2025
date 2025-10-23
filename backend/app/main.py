@@ -7,7 +7,7 @@ import socket
 import threading
 import time
 import argparse
-
+import os
 
 app = FastAPI(title="Video Event Retrieval API v2.0", description="Enhanced multimodal search with temporal capabilities")
 
@@ -36,7 +36,6 @@ NGROK_AUTH_TOKEN = "31JYCDRSSloOw7lPnlEos7Y8sTv_5PUsnG81esTd4PAMccnDz"
 def is_port_in_use(port: int, host="127.0.0.1") -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex((host, port)) == 0
-
 
 """Run FastAPI server"""
 def run_server():
@@ -82,12 +81,6 @@ def start_ngrok(auth_token: str = None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run FastAPI server with optional ngrok tunnel")
-    parser.add_argument("--ngrok", type=str, default=None, help="Ngrok auth token")
-    args = parser.parse_args()
-    if args.ngrok:
-        NGROK_AUTH_TOKEN = args.ngrok
-
     if not is_port_in_use(PORT):
         print(f"🚀 Starting FastAPI server on {HOST}:{PORT}")
         server_thread = threading.Thread(target=run_server, daemon=True)
