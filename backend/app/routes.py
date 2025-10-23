@@ -37,7 +37,7 @@ async def api_search(query: Optional[str] = Form(None), topK: int = Form(...),
             "results": formatted_results,
             "search_info": {
                 "mode": mode,
-                "caption_mode": caption_mode if mode in ["hybrid", "vintern"] else None,
+                "caption_mode": caption_mode if mode in ["hybrid", "caption", "subtitles"] else None,
                 "alpha": alpha if mode == "hybrid" else None,
                 "duration": round(duration, 3),
                 "count": len(results),

@@ -83,11 +83,13 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
     )
 
     if "subtitles" in collection_name:
+        print(nodes)
         results = [
             {"id": str(frame_idx), "score": node.score}
             for node in nodes
             for frame_idx in node.payload.get("frame_list", [])
         ]
+        print(results)
     else:
         results = [{"id": node.payload.get("id", "").strip(), "score": node.score} for node in nodes]   
     return results
