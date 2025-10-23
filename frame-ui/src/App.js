@@ -1299,9 +1299,10 @@ function App() {
                   value={searchMode}
                   onChange={(e) => setSearchMode(e.target.value)}
                 >
-                  <option value="hybrid">🔗 Hybrid (CLIP + Vintern)</option>
-                  <option value="clip">🖼️ CLIP Only</option>
-                  <option value="vintern">📝 Vintern Only</option>
+                  <option value="clip">CLIP Only</option>
+                  <option value="caption">Vintern Only</option>
+                  <option value="subtitles">Subtitles Only</option>
+                  <option value="hybrid"> Hybrid (CLIP + Caption + Subtitles)</option>
                 </select>
               </div>
 

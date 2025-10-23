@@ -137,21 +137,29 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         clip_nodes = retrieve_by_clip(query=query, topK=topK, frame_ids=frame_ids)
         return clip_nodes
     
-    elif mode == "vintern":
+    elif mode == "caption":
         results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
                                          frame_ids=frame_ids, use_caption=True, use_subtitles=False)
         return results['caption']
 
+    elif mode == "subtitles":
+        results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
+                                         frame_ids=frame_ids, use_caption=False, use_subtitles=True)
+        return results['subtitles']
+    
     else: 
         clip_nodes = retrieve_by_clip(query=query, topK=topK, frame_ids=frame_ids)
 
         results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
-                                         frame_ids=frame_ids, use_caption=True, use_subtitles=False)
+                                         frame_ids=frame_ids, use_caption=True, use_subtitles=True)
+        
         caption_nodes = results['caption']
+        subtitle_nodes = results['subtitles']
 
         combined_scores = defaultdict(float)
-        weights= (alpha, 1 - alpha)
-        for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1])):
+        # weights= (alpha, 1 - alpha)
+        weights = (0.4, 0.4, 0.2)
+        for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1]), (subtitle_nodes, weights[2])):
             for node in nodes:
                 combined_scores[node["id"]] += node["score"] * w
 
