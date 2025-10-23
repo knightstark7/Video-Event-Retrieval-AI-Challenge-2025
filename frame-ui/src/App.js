@@ -152,6 +152,10 @@ function App() {
         formData.append('caption_mode', captionMode);
         formData.append('alpha', alpha.toString());
 
+        for (const [key, value] of formData.entries()) {
+          console.log(`${key}:`, value);
+        }
+
         response = await fetch(`${backendUrl}/search`, {
           method: "POST",
           headers: {
@@ -1300,7 +1304,7 @@ function App() {
                   onChange={(e) => setSearchMode(e.target.value)}
                 >
                   <option value="clip">CLIP Only</option>
-                  <option value="caption">Vintern Only</option>
+                  <option value="caption">Caption Only</option>
                   <option value="subtitles">Subtitles Only</option>
                   <option value="hybrid"> Hybrid (CLIP + Caption + Subtitles)</option>
                 </select>
