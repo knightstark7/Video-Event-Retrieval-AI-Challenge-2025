@@ -68,7 +68,7 @@ gte_embedder = Embedding(
 
 def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Optional[List] = None):
     qdrant_client, collection_name = search_engine
-    if "subtitle" in collection_name:
+    if "subtitles" in collection_name:
         topK = topK // 2
 
     query_filter = None
@@ -82,7 +82,7 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
         limit=topK, with_payload=True, query_filter=query_filter,
     )
 
-    if "subtitle" in collection_name:
+    if "subtitles" in collection_name:
         results = [
             {"id": str(frame_idx), "score": node.score}
             for node in nodes
