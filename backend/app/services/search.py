@@ -145,12 +145,11 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
     elif mode == "subtitles":
         results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
                                          frame_ids=frame_ids, use_caption=False, use_subtitles=True)
-        if results:
-            print(results)
-        else: 
-            print("abc")
-        
-        return results['subtitles']
+        subtitle_results = results.get('subtitles', [])
+        print(f"🔍 Subtitle Search - Query: '{query}', Mode: {caption_mode}, Results: {len(subtitle_results)}")
+        if len(subtitle_results) == 0:
+            print(f"⚠️ No subtitle results found. Check if subtitle collections exist and have data.")
+        return subtitle_results
     
     else: 
         clip_nodes = retrieve_by_clip(query=query, topK=topK, frame_ids=frame_ids)
