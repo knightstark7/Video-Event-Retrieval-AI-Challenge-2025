@@ -18,8 +18,8 @@ offset = None
 
 search_engines = {
     "ClipSearch": (QDRANT_CLIENT_H, "Image"),
-    "BGESubtitles": (QDRANT_CLIENT_H, "BGE_Subtitles"),
-    "GTESubtitles": (QDRANT_CLIENT_H, "GTE_Subtitles"),
+    "BGESubtitles": (QDRANT_CLIENT_H, "BGE_subtitles"),
+    "GTESubtitles": (QDRANT_CLIENT_H, "GTE_subtitles"),
     "BGECaption": (QDRANT_CLIENT_K, "BGE_Caption"),
     "GTECaption":  (QDRANT_CLIENT_K, "GTE_Caption"),
 }
@@ -68,7 +68,7 @@ gte_embedder = Embedding(
 
 def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Optional[List] = None):
     qdrant_client, collection_name = search_engine
-    if "Subtitle" in collection_name:
+    if "subtitle" in collection_name:
         topK = topK // 2
 
     query_filter = None
@@ -82,7 +82,7 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
         limit=topK, with_payload=True, query_filter=query_filter,
     )
 
-    if "Subtitle" in collection_name:
+    if "subtitle" in collection_name:
         results = [
             {"id": str(frame_idx), "score": node.score}
             for node in nodes
