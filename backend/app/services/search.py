@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import List, Optional
+import ast
 import io
 import torch
 import open_clip
@@ -82,16 +83,16 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
         limit=topK, with_payload=True, query_filter=query_filter,
     )
 
-    if "subtitles" in collection_name:
-        print(nodes)
-        results = [
-            {"id": str(frame_idx), "score": node.score}
-            for node in nodes
-            for frame_idx in node.payload.get("frame_list", [])
-        ]
-        print(results)
+    if "subtitles" in collection_name.lower():
+        results = []
+        for node in nodes:
+            frame_list_str = node.payload.get("frame_list", "[]")
+            # Parse string representation of list into actual list
+            frame_list = ast.literal_eval(frame_list_str) if isinstance(frame_list_str, str) else frame_list_str
+            for frame_id in frame_list:
+                results.append({"id": str(frame_id), "score": node.score})
     else:
-        results = [{"id": node.payload.get("id", "").strip(), "score": node.score} for node in nodes]   
+        results = [{"id": node.payload.get("id", "").strip(), "score": node.score} for node in nodes]
     return results
 
 def retrieve_from_image(contents: bytes, topK: int):
