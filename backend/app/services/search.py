@@ -145,7 +145,11 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
     elif mode == "subtitles":
         results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
                                          frame_ids=frame_ids, use_caption=False, use_subtitles=True)
-        print(results)
+        if results:
+            print(results)
+        else: 
+            print("abc")
+        
         return results['subtitles']
     
     else: 
