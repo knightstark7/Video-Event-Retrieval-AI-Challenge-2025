@@ -29,6 +29,10 @@ async def api_search(query: Optional[str] = Form(None), topK: int = Form(...),
                 return {"error": "No query provided for text mode"}
             results = retrieve_frame(query=query, topK=topK, mode=mode,
                                     caption_mode=caption_mode, alpha=alpha)
+            if results:
+                print(results)
+            else: 
+                print("abc")
             search_info = f"{mode.upper()} mode with {caption_mode.upper()} model"
 
         duration = time.time() - start_time
