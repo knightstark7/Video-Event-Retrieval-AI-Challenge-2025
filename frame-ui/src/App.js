@@ -1306,7 +1306,7 @@ function App() {
                 </select>
               </div>
 
-              {(searchMode === "hybrid" || searchMode === "vintern") && (
+              {(searchMode === "hybrid" || searchMode === "caption" || searchMode === "subtitles") && (
                 <div className="caption-mode-section">
                   <label className="caption-mode-label">Caption Model:</label>
                   <select
