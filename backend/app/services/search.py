@@ -9,6 +9,7 @@ from app.clients.qdrant_clients import QDRANT_CLIENT_H, QDRANT_CLIENT_K
 from sentence_transformers import SentenceTransformer
 from .translator import Translator
 from .embeddings import Embedding
+import math
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -179,28 +180,30 @@ def group_by_video(final_results, num_events):
     }
     return filtered_data
 
-def compute_video_score(video_events, device=DEVICE):
+def compute_video_score(video_events):
     event_lengths = []
     event_avgs = []
 
     for frames in video_events.values():
         if not frames:
             continue
-        scores = torch.tensor([f["score"] for f in frames], device=device)
-        event_avgs.append(torch.mean(scores))
+        scores = [f["score"] for f in frames]
+        event_avgs.append(sum(scores) / len(scores))
         event_lengths.append(len(frames))
 
     if not event_avgs:
         return 0.0
-        
-    lengths_tensor = torch.tensor(event_lengths, dtype=torch.float32, device=device)
-    avgs_tensor = torch.stack(event_avgs)
 
-    event_scores = avgs_tensor * torch.log1p(lengths_tensor)
-    max_possible = torch.sum(torch.log1p(lengths_tensor))
-    video_score = torch.sum(event_scores) / (max_possible + 1e-12)
+    event_scores_sum = 0.0
+    log_lengths_sum = 0.0
 
-    return video_score.item()
+    for avg, length in zip(event_avgs, event_lengths):
+        log_len = math.log1p(length)
+        event_scores_sum += avg * log_len
+        log_lengths_sum += log_len
+
+    video_score = event_scores_sum / (log_lengths_sum + 1e-12)
+    return video_score
 
 
 def beam_search(video_event, beam_size=3, length_norm=True):
@@ -265,7 +268,7 @@ def temporal_search(events: List[str], topK: int = 100,
 
     results_list = []
     for vid, events_dict in video_event_data.items():
-        score = compute_video_score(events_dict, device=DEVICE)
+        score = compute_video_score(events_dict)
         sequences = beam_search(events_dict, length_norm=True)
     
         if sequences:
