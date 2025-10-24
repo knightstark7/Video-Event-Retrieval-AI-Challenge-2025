@@ -265,6 +265,7 @@ def temporal_search(events: List[str], topK: int = 100,
         for event in events:
             results = retrieve_frame(query=event, topK=topK, mode=mode, caption_mode=caption_mode, 
                                      alpha=alpha, frame_ids=frame_ids)
+            print(results)
             final_results.append(results)
             video_ids = {parse_image_name(item['id'])[0] for item in results}
             frame_ids = [f for vid in video_ids for f in VIDEO_TO_FRAMES[vid]]
