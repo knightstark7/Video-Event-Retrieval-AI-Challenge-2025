@@ -234,8 +234,8 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         
         if alpha > 0.5:
             print(alpha)
-            top_results = rerank(query, top_results, topK // 2, search_engines['GTESubtitles'])
-
+            top_results = rerank(query, top_results, topK // 2, search_engines['BGECaption'])
+            
         return top_results
 
 def parse_image_name(image_name: str):
