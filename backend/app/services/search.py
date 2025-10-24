@@ -221,7 +221,7 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
 
         combined_scores = defaultdict(float)
         # weights= (alpha, 1 - alpha)
-        weights = (0.4, 0.4, 0.2)
+        weights = (0.45, 0.45, 0.1)
         for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1]), (subtitle_nodes, weights[2])):
             for node in nodes:
                 combined_scores[node["id"]] += node["score"] * w
