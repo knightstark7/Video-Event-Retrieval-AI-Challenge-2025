@@ -8,9 +8,11 @@ from PIL import Image
 from qdrant_client import models
 from app.clients.qdrant_clients import QDRANT_CLIENT_H, QDRANT_CLIENT_K
 from sentence_transformers import SentenceTransformer
+from transformers import AutoModel
 from .translator import Translator
 from .embeddings import Embedding
 import math
+import json
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -88,6 +90,8 @@ gte_embedder = Embedding(
     device=DEVICE, model_type="caption"
 )
 
+reranker_model = AutoModel.from_pretrained('jinaai/jina-reranker-v3', trust_remote_code=True,).to(DEVICE).eval()
+
 def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Optional[List] = None):
     qdrant_client, collection_name = search_engine
     if "subtitles" in collection_name:
@@ -114,7 +118,6 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
         results = []
         for node in nodes:
             frame_list_str = node.payload.get("frame_list", "[]")
-            # Parse string representation of list into actual list
             frame_list = ast.literal_eval(frame_list_str) if isinstance(frame_list_str, str) else frame_list_str
             for frame_id in frame_list:
                 results.append({"id": str(frame_id), "score": node.score})
@@ -161,6 +164,37 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
                                                     topK=topK, frame_ids=frame_ids)
     return results
 
+def rerank(query, candidates, topK, search_engine):
+    qdrant_client, collection_name = search_engine
+    frame_ids = [val["id"] for val in candidates]
+
+    scroll_filter = models.Filter(
+        must=[models.FieldCondition(key="id", match=models.MatchAny(any=frame_ids))]
+    )
+
+    document_list = []
+    id_list = []
+    offset = None
+    while True:
+        res, offset = qdrant_client.scroll(
+            collection_name=collection_name,
+            scroll_filter=scroll_filter,
+            with_payload=True,
+            limit=5000,
+            offset=offset
+        )
+
+        for point in res:
+            text = json.loads(point.payload.get("_node_content", "{}")).get("text", "")
+            document_list.append(text)
+            id_list.append(point.payload.get("id", ""))
+
+        if offset is None:
+            break
+
+    top_results = reranker_model.rerank(query, document_list, top_n=topK)
+    return [{"id": id_list[i], "score": score} for i, score in enumerate(top_results)]
+
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
                    alpha: float = 0.5, frame_ids: Optional[List] = None):
     if mode == "clip":
@@ -194,9 +228,14 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
                 combined_scores[node["id"]] += node["score"] * w
 
         top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
+        top_results = [{"id": video_id, "score": score} for video_id, score in top_results]
+        
+        if alpha > 0.5:
+            print(alpha)
+            top_results = rerank(query, top_results, topK // 2, search_engines['GTESubtitles'])
 
-        return [{"id": video_id, "score": score} for video_id, score in top_results]
-    
+        return top_results
+
 def parse_image_name(image_name: str):
     parts = image_name.split("_", 2)
     vid = f"{parts[0]}_{parts[1]}"
