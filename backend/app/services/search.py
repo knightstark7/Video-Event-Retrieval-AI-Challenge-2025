@@ -167,6 +167,7 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
 def rerank(query, candidates, topK, search_engine):
     qdrant_client, collection_name = search_engine
     frame_ids = [val["id"] for val in candidates]
+    print(frame_ids)
 
     scroll_filter = models.Filter(
         must=[models.FieldCondition(key="id", match=models.MatchAny(any=frame_ids))]
@@ -191,7 +192,8 @@ def rerank(query, candidates, topK, search_engine):
 
         if offset is None:
             break
-
+    print(id_list)
+    print(document_list)
     top_results = reranker_model.rerank(query, document_list, top_n=topK)
     return [{"id": id_list[i], "score": score} for i, score in enumerate(top_results)]
 
