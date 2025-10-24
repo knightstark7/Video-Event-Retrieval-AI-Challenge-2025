@@ -160,6 +160,7 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         subtitle_nodes = results['subtitles']
 
         combined_scores = defaultdict(float)
+        # weights= (alpha, 1 - alpha)
         weights = (0.4, 0.4, 0.2)
         for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1]), (subtitle_nodes, weights[2])):
             for node in nodes:
@@ -262,15 +263,12 @@ def temporal_search(events: List[str], topK: int = 100,
     if search_mode == "progressive":
         frame_ids = None
         for event in events:
-            results = retrieve_frame(query=event, topK=topK, mode=mode, caption_mode=caption_mode,
+            results = retrieve_frame(query=event, topK=topK, mode=mode, caption_mode=caption_mode, 
                                      alpha=alpha, frame_ids=frame_ids)
+            print(results)
             final_results.append(results)
             video_ids = {parse_image_name(item['id'])[0] for item in results}
-            # Only filter by videos that have frames in VIDEO_TO_FRAMES (Image collection)
-            frame_ids = [f for vid in video_ids if vid in VIDEO_TO_FRAMES for f in VIDEO_TO_FRAMES[vid]]
-            # If no frames found in Image collection, don't filter (allow all frames)
-            if not frame_ids:
-                frame_ids = None
+            frame_ids = [f for vid in video_ids for f in VIDEO_TO_FRAMES[vid]]
             
     else: #consolidated
         for event in events:
