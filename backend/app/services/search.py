@@ -15,6 +15,7 @@ import math
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 VIDEO_TO_FRAMES  = defaultdict(list)
+FRAME_TO_SUBTILES = defaultdict(list)
 offset = None
 
 search_engines = {
@@ -42,6 +43,27 @@ while True:
 
     if offset is None:
         break
+
+while True:
+    result, offset = search_engines["BGE_subtitles"][0].scroll(
+        collection_name=search_engines["BGE_subtitles"][1],
+        scroll_filter=None,
+        with_payload=True,
+        limit=5000,
+        offset=offset
+    )
+
+    for point in result:
+        fid = point.payload.get("id")
+
+        frame_list_str = point.payload.get("frame_list", "[]")
+        frame_list = ast.literal_eval(frame_list_str) if isinstance(frame_list_str, str) else frame_list_str
+        for frame_id in frame_list:
+            FRAME_TO_SUBTILES[frame_id].append(fid)
+            
+    if offset is None:
+        break
+
 
 # INSTALL MODEL
 translator = Translator(device=DEVICE)
