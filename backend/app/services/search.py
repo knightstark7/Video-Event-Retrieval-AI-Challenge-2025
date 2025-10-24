@@ -45,8 +45,8 @@ while True:
         break
 
 while True:
-    result, offset = search_engines["BGE_subtitles"][0].scroll(
-        collection_name=search_engines["BGE_subtitles"][1],
+    result, offset = search_engines["BGESubtitles"][0].scroll(
+        collection_name=search_engines["BGESubtitles"][1],
         scroll_filter=None,
         with_payload=True,
         limit=5000,
@@ -60,7 +60,7 @@ while True:
         frame_list = ast.literal_eval(frame_list_str) if isinstance(frame_list_str, str) else frame_list_str
         for frame_id in frame_list:
             FRAME_TO_SUBTILES[frame_id].append(fid)
-            
+
     if offset is None:
         break
 
