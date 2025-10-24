@@ -102,6 +102,5 @@ async def health_check():
         "search_engines": search_engines,
         "frame_count": sum(map(len, VIDEO_TO_FRAMES.values())),
         "video_count": len(VIDEO_TO_FRAMES),
-        "subtitle": FRAME_TO_SUBTILES,
         "supported_search_modes": ["progressive", "consolidated"]
     }

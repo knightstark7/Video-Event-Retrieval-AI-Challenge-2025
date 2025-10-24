@@ -64,6 +64,7 @@ while True:
     if offset is None:
         break
 
+print(FRAME_TO_SUBTILES)
 
 # INSTALL MODEL
 translator = Translator(device=DEVICE)
