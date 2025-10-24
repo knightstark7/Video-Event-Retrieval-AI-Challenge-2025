@@ -190,13 +190,9 @@ def rerank(query, candidates, topK, search_engine):
 
         if offset is None:
             break
-    print(id_list)
-    top_results = reranker_model.rerank(query, document_list, top_n=topK)
-    print(top_results)
 
-    top_results = [{"id": id_list[val["index"]], "score": val["relevance_score"]} for val in top_results]
-    print(top_results)
-    return top_results
+    top_results = reranker_model.rerank(query, document_list, top_n=topK) 
+    return [{"id": id_list[val["index"]], "score": val["relevance_score"]} for val in top_results]
 
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
                    alpha: float = 0.5, frame_ids: Optional[List] = None):
@@ -334,7 +330,6 @@ def temporal_search(events: List[str], topK: int = 100,
         for event in events:
             results = retrieve_frame(query=event, topK=topK, mode=mode, caption_mode=caption_mode, 
                                      alpha=alpha, frame_ids=frame_ids)
-            print(results)
             final_results.append(results)
             video_ids = {parse_image_name(item['id'])[0] for item in results}
             frame_ids = [f for vid in video_ids for f in VIDEO_TO_FRAMES[vid]]
