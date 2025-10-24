@@ -134,6 +134,30 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
                                                     topK=topK, frame_ids=frame_ids)
     return results
 
+def fuse_scores(caption_nodes, clip_nodes, subtitle_nodes, topK, method="weighted"):
+    combined_scores = defaultdict(float)
+    sources = [caption_nodes, clip_nodes, subtitle_nodes]
+
+    if method == "weighted":
+        weights = (0.4, 0.4, 0.2)
+        for nodes, w in zip(sources, weights):
+            for node in nodes:
+                combined_scores[node["id"]] += node["score"] * w
+
+    elif method == "rrf":
+        for nodes in sources:
+
+            sorted_nodes = sorted(nodes, key=lambda x: x["score"], reverse=True)
+            for rank, node in enumerate(sorted_nodes, start=1):
+                combined_scores[node["id"]] += 1.0 / (topK + rank)
+
+    else:
+        raise ValueError("method must be 'weighted' or 'rrf'")
+    
+    top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
+
+    return top_results
+
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
                    alpha: float = 0.5, frame_ids: Optional[List] = None):
     if mode == "clip":
@@ -159,15 +183,7 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         caption_nodes = results['caption']
         subtitle_nodes = results['subtitles']
 
-        combined_scores = defaultdict(float)
-        # weights= (alpha, 1 - alpha)
-        weights = (0.4, 0.4, 0.2)
-        for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1]), (subtitle_nodes, weights[2])):
-            for node in nodes:
-                combined_scores[node["id"]] += node["score"] * w
-
-        top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
-
+        top_results = fuse_scores(caption_nodes, clip_nodes, subtitle_nodes, topK=topK, method="rrf")
         return [{"id": video_id, "score": score} for video_id, score in top_results]
     
 def parse_image_name(image_name: str):
