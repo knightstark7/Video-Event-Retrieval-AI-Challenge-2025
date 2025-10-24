@@ -195,6 +195,7 @@ def rerank(query, candidates, topK, search_engine):
     print(id_list)
     print(document_list)
     top_results = reranker_model.rerank(query, document_list, top_n=topK)
+    print(top_results)
     return [{"id": id_list[i], "score": score} for i, score in enumerate(top_results)]
 
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
@@ -234,8 +235,8 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         
         if alpha > 0.5:
             print(alpha)
-            top_results = rerank(query, top_results, topK // 2, search_engines['BGECaption'])
-            
+            top_results = rerank(query, top_results, 20, search_engines['BGECaption'])
+
         return top_results
 
 def parse_image_name(image_name: str):
