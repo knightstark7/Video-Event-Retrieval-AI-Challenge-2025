@@ -15,7 +15,7 @@ import math
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 VIDEO_TO_FRAMES  = defaultdict(list)
-FRAME_TO_SUBTILES = defaultdict(list)
+FRAME_TO_SUBTILES = defaultdict()
 offset = None
 
 search_engines = {
@@ -59,7 +59,7 @@ while True:
         frame_list_str = point.payload.get("frame_list", "[]")
         frame_list = ast.literal_eval(frame_list_str) if isinstance(frame_list_str, str) else frame_list_str
         for frame_id in frame_list:
-            FRAME_TO_SUBTILES[frame_id].append(fid)
+            FRAME_TO_SUBTILES[frame_id] = fid
 
     if offset is None:
         break
@@ -97,9 +97,16 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
 
     query_filter = None
     if frame_ids:
-        query_filter = models.Filter(
-            must=[models.FieldCondition(key="id", match=models.MatchAny(any=frame_ids))]
-        )
+        if "subtitles" in collection_name:
+            temp = set([FRAME_TO_SUBTILES[fid] for fid in frame_ids if fid in FRAME_TO_SUBTILES])
+            print(temp)
+            query_filter = models.Filter(
+                must=[models.FieldCondition(key="id", match=models.MatchAny(any=temp))]
+            )
+        else:
+            query_filter = models.Filter(
+                must=[models.FieldCondition(key="id", match=models.MatchAny(any=frame_ids))]
+            )
 
     nodes = qdrant_client.search(
         collection_name=collection_name, query_vector=vector_query,
