@@ -193,8 +193,9 @@ def rerank(query, candidates, topK, search_engine):
     print(id_list)
     top_results = reranker_model.rerank(query, document_list, top_n=topK)
     print(top_results)
-    
+
     top_results = [{"id": id_list[val["index"]], "score": val["relevance_score"]} for val in top_results]
+    print(top_results)
     return top_results
 
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
