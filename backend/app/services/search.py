@@ -64,8 +64,6 @@ while True:
     if offset is None:
         break
 
-print(FRAME_TO_SUBTILES)
-
 # INSTALL MODEL
 translator = Translator(device=DEVICE)
 clip_model, _, clip_preprocess = open_clip.create_model_and_transforms(model_name="ViT-H-14-quickgelu", 
@@ -99,7 +97,6 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
     if frame_ids:
         if "subtitles" in collection_name:
             temp = set([FRAME_TO_SUBTILES[fid] for fid in frame_ids if fid in FRAME_TO_SUBTILES])
-            print(temp)
             query_filter = models.Filter(
                 must=[models.FieldCondition(key="id", match=models.MatchAny(any=temp))]
             )
