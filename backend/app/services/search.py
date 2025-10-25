@@ -210,6 +210,12 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
     elif mode == "caption":
         results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
                                          frame_ids=frame_ids, use_caption=True, use_subtitles=False)
+        
+        if alpha > 0.6:
+            print(alpha)
+            top_results = rerank(query, top_results, (topK // 2), caption_mode)
+            return top_results
+
         return results['caption']
 
     elif mode == "subtitles":
