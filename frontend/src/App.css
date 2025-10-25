@@ -82,11 +82,6 @@ body {
   grid-column: 1 / -1 !important;
 }
 
-.consolidated-card .card-header-new {
-  border-bottom: 1px solid rgba(0, 123, 255, 0.2);
-  padding-bottom: 8px;
-  margin-bottom: 8px;
-}
 
 .video-timeline-info {
   margin-top: 8px;
@@ -325,16 +320,16 @@ body {
 
 .event-arrow {
   color: #007bff;
-  font-size: 20px;
+  font-size: 24px;
   font-weight: bold;
-  margin: 0 12px;
-  align-self: center;
+  margin: 0 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 75px;
   flex-shrink: 0;
   text-shadow: 0 1px 2px rgba(0, 123, 255, 0.3);
+  align-self: flex-start;
+  margin-top: 30px;
 }
 
 /* Legacy vertical timeline styles for fallback */
@@ -1443,15 +1438,6 @@ body {
 }
 
 /* New card header design */
-.card-header-new {
-  display: flex;
-  align-items: center;
-  padding: 10px;
-  background: rgba(0, 0, 0, 0.8);
-  border-radius: 8px 8px 0 0;
-  margin-bottom: 8px;
-  min-height: 5px;
-}
 
 
 .card-caption-new {
@@ -1544,7 +1530,7 @@ body {
 
 .main-content {
   flex: 1;
-  padding: 15px 20px;
+  padding: 0 20px 15px 20px;
   margin-left: 5px;
   margin-right: 15px;
   height: 100vh;

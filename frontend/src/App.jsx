@@ -1268,7 +1268,7 @@ function App() {
                       checked={useRerank}
                       onChange={(e) => setUseRerank(e.target.checked)}
                     />
-                    🔄 Enable Reranking (jina-reranker-v3)
+                    🔄 Enable Reranking
                   </label>
                 </div>
               )}
@@ -1671,7 +1671,8 @@ function App() {
                           style={{'--frame-count': item.videoTimeline.frames.length}}
                         >
                           {item.videoTimeline.frames.map((frameObj, eventIdx) => (
-                            <div key={eventIdx} className="timeline-event-frame">
+                            <React.Fragment key={eventIdx}>
+                              <div className="timeline-event-frame">
                                 <img
                                   src={(() => {
                                     const parts = frameObj.id.split('_');
@@ -1695,10 +1696,11 @@ function App() {
                                   <div className="event-frame-id">{frameObj.id}</div>
                                   <div className="event-frame-score">Score: {frameObj.score.toFixed(3)}</div>
                                 </div>
+                              </div>
                               {eventIdx < item.videoTimeline.frames.length - 1 && (
                                 <div className="event-arrow">→</div>
                               )}
-                            </div>
+                            </React.Fragment>
                           ))}
                         </div>
                         <div className="timeline-summary">
