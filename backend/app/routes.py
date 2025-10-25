@@ -7,9 +7,10 @@ from app.services.search import retrieve_frame, retrieve_from_image, temporal_se
 router = APIRouter()
 
 @router.post("/search")
-async def api_search(query: Optional[str] = Form(None), topK: int = Form(...), 
-                     mode: str = Form("hybrid"), caption_mode: str = Form("bge"), 
-                     alpha: float = Form(0.5), file: UploadFile = File(None)):
+async def api_search(query: Optional[str] = Form(None), topK: int = Form(...),
+                     mode: str = Form("hybrid"), caption_mode: str = Form("bge"),
+                     alpha: float = Form(0.5), use_rerank: bool = Form(False),
+                     file: UploadFile = File(None)):
     """
     Enhanced search API with caption mode support
     - mode: hybrid, clip, vintern, image
@@ -28,7 +29,7 @@ async def api_search(query: Optional[str] = Form(None), topK: int = Form(...),
             if query is None or query.strip() == "":
                 return {"error": "No query provided for text mode"}
             results = retrieve_frame(query=query, topK=topK, mode=mode,
-                                    caption_mode=caption_mode, alpha=alpha)
+                                    caption_mode=caption_mode, alpha=alpha, use_rerank=use_rerank)
             search_info = f"{mode.upper()} mode with {caption_mode.upper()} model"
 
         duration = time.time() - start_time
@@ -48,9 +49,10 @@ async def api_search(query: Optional[str] = Form(None), topK: int = Form(...),
         return {"error": f"Search failed: {str(e)}"}
 
 @router.post("/temporal_search")
-async def api_temporal_search(events: str = Form(...), topK: int = Form(100), 
-                              mode: str = Form("hybrid"), caption_mode: str = Form("bge"), 
-                              alpha: float = Form(0.5), search_mode: str = Form("progressive")):
+async def api_temporal_search(events: str = Form(...), topK: int = Form(100),
+                              mode: str = Form("hybrid"), caption_mode: str = Form("bge"),
+                              alpha: float = Form(0.5), use_rerank: bool = Form(False),
+                              search_mode: str = Form("progressive")):
     """
     Enhanced Temporal search API for TRAKE mode
     - events: JSON array of sequential event descriptions
@@ -67,8 +69,9 @@ async def api_temporal_search(events: str = Form(...), topK: int = Form(100),
             return {"error": "No valid events provided"}
 
         start_time = time.time()
-        results = temporal_search(events=valid_events, topK=topK, mode=mode, 
-                                  caption_mode=caption_mode, alpha=alpha, search_mode=search_mode)
+        results = temporal_search(events=valid_events, topK=topK, mode=mode,
+                                  caption_mode=caption_mode, alpha=alpha, use_rerank=use_rerank,
+                                  search_mode=search_mode)
 
         duration = time.time() - start_time
         final_count = len(results)

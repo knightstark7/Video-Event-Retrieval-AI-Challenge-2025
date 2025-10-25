@@ -202,7 +202,7 @@ def rerank(query, candidates, topK, caption_mode):
     return [{"id": id_list[val["index"]], "score": val["relevance_score"]} for val in top_results]
 
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
-                   alpha: float = 0.5, frame_ids: Optional[List] = None):
+                   alpha: float = 0.5, frame_ids: Optional[List] = None, use_rerank: bool = False):
     if mode == "clip":
         clip_nodes = retrieve_by_clip(query=query, topK=topK, frame_ids=frame_ids)
         return clip_nodes
@@ -210,10 +210,9 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
     elif mode == "caption":
         results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
                                          frame_ids=frame_ids, use_caption=True, use_subtitles=False)
-        
-        if alpha > 0.6:
-            print(alpha)
-            top_results = rerank(query, top_results, (topK // 2), caption_mode)
+
+        if use_rerank:
+            top_results = rerank(query, results['caption'], (topK // 2), caption_mode)
             return top_results
 
         return results['caption']
@@ -241,9 +240,8 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
 
         top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
         top_results = [{"id": video_id, "score": score} for video_id, score in top_results]
-        
-        if alpha > 0.6:
-            print(alpha)
+
+        if use_rerank:
             top_results = rerank(query, top_results, (topK // 2), caption_mode)
 
         return top_results
@@ -335,22 +333,22 @@ def beam_search(video_event, beam_size=3, length_norm=True):
     
 def temporal_search(events: List[str], topK: int = 100,
                     mode: str = "hybrid", caption_mode: str = "bge",
-                    alpha: float = 0.5, search_mode: str = "progressive"):
+                    alpha: float = 0.5, use_rerank: bool = False, search_mode: str = "progressive"):
     final_results = []  
 
     if search_mode == "progressive":
         frame_ids = None
         for event in events:
-            results = retrieve_frame(query=event, topK=topK, mode=mode, caption_mode=caption_mode, 
-                                     alpha=alpha, frame_ids=frame_ids)
+            results = retrieve_frame(query=event, topK=topK, mode=mode, caption_mode=caption_mode,
+                                     alpha=alpha, frame_ids=frame_ids, use_rerank=use_rerank)
             final_results.append(results)
             video_ids = {parse_image_name(item['id'])[0] for item in results}
             frame_ids = [f for vid in video_ids for f in VIDEO_TO_FRAMES[vid]]
-            
+
     else: #consolidated
         for event in events:
-            results = retrieve_frame(query=event, topK=topK, mode=mode, caption_mode=caption_mode, 
-                                     alpha=alpha, frame_ids=None)
+            results = retrieve_frame(query=event, topK=topK, mode=mode, caption_mode=caption_mode,
+                                     alpha=alpha, frame_ids=None, use_rerank=use_rerank)
             final_results.append(results)
 
     video_event_data = group_by_video(final_results, len(events))
