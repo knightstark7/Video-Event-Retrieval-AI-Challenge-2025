@@ -164,8 +164,12 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
                                                     topK=topK, frame_ids=frame_ids)
     return results
 
-def rerank(query, candidates, topK, search_engine):
-    qdrant_client, collection_name = search_engine
+def rerank(query, candidates, topK, caption_mode):
+    if caption_mode == "bge":
+        qdrant_client, collection_name = search_engines["BGECaption"]
+    else:
+        qdrant_client, collection_name = search_engines["GTECaption"]
+
     frame_ids = [val["id"] for val in candidates]
     scroll_filter = models.Filter(
         must=[models.FieldCondition(key="id", match=models.MatchAny(any=frame_ids))]
@@ -192,7 +196,6 @@ def rerank(query, candidates, topK, search_engine):
             break
 
     top_results = reranker_model.rerank(query, document_list, top_n=topK) 
-    print(top_results)
     return [{"id": id_list[val["index"]], "score": val["relevance_score"]} for val in top_results]
 
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
@@ -230,9 +233,9 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
         top_results = [{"id": video_id, "score": score} for video_id, score in top_results]
         
-        if alpha > 0.5:
+        if alpha > 0.6:
             print(alpha)
-            top_results = rerank(query, top_results, (topK // 2), search_engines['BGECaption'])
+            top_results = rerank(query, top_results, (topK // 2), caption_mode)
 
         return top_results
 
