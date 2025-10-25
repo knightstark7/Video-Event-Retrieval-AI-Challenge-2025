@@ -90,7 +90,10 @@ gte_embedder = Embedding(
     device=DEVICE, model_type="caption"
 )
 
-reranker_model = AutoModel.from_pretrained('jinaai/jina-reranker-v3', trust_remote_code=True,).to(DEVICE).eval()
+reranker_model = AutoModel.from_pretrained(
+    'jinaai/jina-reranker-v3', 
+    trust_remote_code=True,
+).half().to(DEVICE).eval()
 
 def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Optional[List] = None):
     qdrant_client, collection_name = search_engine
