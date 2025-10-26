@@ -143,7 +143,7 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
         vector_query = GTE_embedder._get_query_embedding(query)
         caption_engine = SearchEngines["GTECaption"]
         subtitle_engine = SearchEngines["GTESubtitles"]
-    print(f"Caption embedding time: {time.time() - t1} seconds")
+    print(f"Text embedding time: {time.time() - t1} seconds")
 
     results = {}
     if use_caption:
@@ -239,7 +239,6 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
         top_results = [{"id": video_id, "score": score} for video_id, score in top_results]
         print(f"Combining scores time: {time.time() - start} seconds")
-        print("="*50)
         if use_rerank:
             top_results = rerank(query, top_results, (topK // 2), caption_mode)
 

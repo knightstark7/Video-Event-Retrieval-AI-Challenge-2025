@@ -34,6 +34,7 @@ async def api_search(query: Optional[str] = Form(None), topK: int = Form(...),
 
         duration = time.time() - start_time
         print(f"Search completed in {duration:.2f} seconds with {len(results)} results")
+        print("="*50)
         formatted_results = [{"image": r["id"], "caption": f"{r['id']} | Score: {r['score']:.2f}"} for r in results]
         return {
             "results": formatted_results,
