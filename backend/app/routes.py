@@ -27,11 +27,13 @@ async def api_search(query: Optional[str] = Form(None), topK: int = Form(...),
         else:
             if query is None or query.strip() == "":
                 return {"error": "No query provided for text mode"}
+            print(f"Search query: {query}")
             results = retrieve_frame(query=query, topK=topK, mode=mode,
                                     caption_mode=caption_mode, alpha=alpha, use_rerank=use_rerank)
             search_info = f"{mode.upper()} mode with {caption_mode.upper()} model"
 
         duration = time.time() - start_time
+        print(f"Search completed in {duration:.2f} seconds with {len(results)} results")
         formatted_results = [{"image": r["id"], "caption": f"{r['id']} | Score: {r['score']:.2f}"} for r in results]
         return {
             "results": formatted_results,

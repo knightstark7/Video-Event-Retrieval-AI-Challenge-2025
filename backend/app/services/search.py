@@ -112,11 +112,11 @@ def retrieve_by_clip(query: str, topK: int, frame_ids: Optional[List] = None):
     print("Retrieving by CLIP...")
     t1 = time.time()
     clip_query = translator.translate(query)
-    print(f"Translation time: {time.time() - t1:.2f} seconds")
+    print(f"Translation time: {time.time() - t1} seconds")
 
     t2 = time.time()
     clip_vector_query = CLIP_embedder._get_query_embedding(clip_query)
-    print(f"CLIP embedding time: {time.time() - t2:.2f} seconds")
+    print(f"CLIP embedding time: {time.time() - t2} seconds")
 
     t3 = time.time()
     clip_nodes = retrieve_with_vector(
@@ -125,7 +125,7 @@ def retrieve_by_clip(query: str, topK: int, frame_ids: Optional[List] = None):
         topK=topK,
         frame_ids=frame_ids
     )
-    print(f"CLIP retrieval time: {time.time() - t3:.2f} seconds")
+    print(f"CLIP retrieval time: {time.time() - t3} seconds")
     return clip_nodes
 
 def retrieve_by_captions(query: str, caption_mode: str, topK: int,
@@ -143,7 +143,7 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
         vector_query = GTE_embedder._get_query_embedding(query)
         caption_engine = SearchEngines["GTECaption"]
         subtitle_engine = SearchEngines["GTESubtitles"]
-    print(f"Caption embedding time: {time.time() - t1:.2f} seconds")
+    print(f"Caption embedding time: {time.time() - t1} seconds")
 
     results = {}
     if use_caption:
@@ -154,7 +154,7 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
             topK=topK, 
             frame_ids=frame_ids
         )
-        print(f"Caption retrieval time: {time.time() - t2:.2f} seconds")
+        print(f"Caption retrieval time: {time.time() - t2} seconds")
     if use_subtitles:
         t3 = time.time()
         results["subtitles"] = retrieve_with_vector(
@@ -163,7 +163,7 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
             topK=topK, 
             frame_ids=frame_ids
         )
-        print(f"Subtitle retrieval time: {time.time() - t3:.2f} seconds")
+        print(f"Subtitle retrieval time: {time.time() - t3} seconds")
     return results
 
 def rerank(query, candidates, topK, caption_mode):
@@ -238,7 +238,7 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
 
         top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
         top_results = [{"id": video_id, "score": score} for video_id, score in top_results]
-        print(f"Combining scores time: {time.time() - start:.2f} seconds")
+        print(f"Combining scores time: {time.time() - start} seconds")
         print("="*50)
         if use_rerank:
             top_results = rerank(query, top_results, (topK // 2), caption_mode)
