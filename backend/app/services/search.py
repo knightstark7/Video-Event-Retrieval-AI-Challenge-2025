@@ -2,7 +2,6 @@ from collections import defaultdict
 from typing import List, Optional
 import ast
 import io
-import torch
 from PIL import Image
 from qdrant_client import models
 from .translator import translator
@@ -18,8 +17,9 @@ SearchEngines = {
     "BGECaption": (QDRANT_CLIENT_K, "BGE_Caption"),
     "GTECaption":  (QDRANT_CLIENT_K, "GTE_Caption"),
 }
-VIDEO_TO_FRAMES  = defaultdict(list)
-FRAME_TO_SUBTILES = defaultdict()
+VIDEO_TO_FRAMES = defaultdict(list)
+FRAME_TO_SUBTITLES = {}
+scroll_limit = 5000
 offset = None
 
 while True:
@@ -27,14 +27,14 @@ while True:
         collection_name=SearchEngines["ClipSearch"][1],
         scroll_filter=None,
         with_payload=True,
-        limit=5000,
+        limit=scroll_limit,
         offset=offset
     )
 
     for point in result:
         fid = point.payload.get("id")
         if fid:
-            vid = "_".join(fid.split("_")[:2])
+            vid = fid.rsplit("_", 2)[0]
             VIDEO_TO_FRAMES [vid].append(fid)
 
     if offset is None:
@@ -45,7 +45,7 @@ while True:
         collection_name=SearchEngines["BGESubtitles"][1],
         scroll_filter=None,
         with_payload=True,
-        limit=5000,
+        limit=scroll_limit,
         offset=offset
     )
 
@@ -55,7 +55,7 @@ while True:
         frame_list_str = point.payload.get("frame_list", "[]")
         frame_list = ast.literal_eval(frame_list_str) if isinstance(frame_list_str, str) else frame_list_str
         for frame_id in frame_list:
-            FRAME_TO_SUBTILES[frame_id] = fid
+            FRAME_TO_SUBTITLES[frame_id] = fid
 
     if offset is None:
         break
@@ -68,7 +68,7 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
     query_filter = None
     if frame_ids:
         if "subtitles" in collection_name:
-            temp = set([FRAME_TO_SUBTILES[fid] for fid in frame_ids if fid in FRAME_TO_SUBTILES])
+            temp = set([FRAME_TO_SUBTITLES[fid] for fid in frame_ids if fid in FRAME_TO_SUBTITLES])
             query_filter = models.Filter(
                 must=[models.FieldCondition(key="id", match=models.MatchAny(any=temp))]
             )
@@ -78,8 +78,11 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
             )
 
     nodes = qdrant_client.search(
-        collection_name=collection_name, query_vector=vector_query,
-        limit=topK, with_payload=True, query_filter=query_filter,
+        collection_name=collection_name, 
+        query_vector=vector_query,
+        limit=topK, 
+        with_payload=True, 
+        query_filter=query_filter,
     )
 
     if "subtitles" in collection_name.lower():
@@ -96,8 +99,12 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
 def retrieve_from_image(contents: bytes, topK: int):
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     clip_vector_query = CLIP_embedder._get_image_embedding(image)
-    results = retrieve_with_vector(search_engine=SearchEngines['ClipSearch'], vector_query=clip_vector_query, 
-                                   topK=topK, frame_ids=None)
+    results = retrieve_with_vector(
+        search_engine=SearchEngines['ClipSearch'], 
+        vector_query=clip_vector_query, 
+        topK=topK, 
+        frame_ids=None
+    )
     return results
 
 def retrieve_by_clip(query: str, topK: int, frame_ids: Optional[List] = None): 
@@ -133,18 +140,16 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
     return results
 
 def rerank(query, candidates, topK, caption_mode):
-    if caption_mode == "bge":
-        qdrant_client, collection_name = SearchEngines["BGECaption"]
-    else:
-        qdrant_client, collection_name = SearchEngines["GTECaption"]
+    qdrant_client, collection_name = (
+        SearchEngines["BGECaption"] if caption_mode == "bge" else SearchEngines["GTECaption"]
+    )
 
     frame_ids = [val["id"] for val in candidates]
     scroll_filter = models.Filter(
         must=[models.FieldCondition(key="id", match=models.MatchAny(any=frame_ids))]
     )
 
-    document_list = []
-    id_list = []
+    document_list, id_list = [], []
     offset = None
     while True:
         res, offset = qdrant_client.scroll(
