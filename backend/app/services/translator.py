@@ -23,3 +23,6 @@ class Translator:
         decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
         return self._clean_prefix(decoded)
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+translator = Translator(device=DEVICE)

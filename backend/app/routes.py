@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Form, UploadFile, File
 from typing import Optional
 import json, time
-from app.services.search import retrieve_frame, retrieve_from_image, temporal_search,\
-    search_engines, VIDEO_TO_FRAMES, DEVICE, FRAME_TO_SUBTILES
+from app.services.search import retrieve_frame, retrieve_from_image, temporal_search
 
 router = APIRouter()
 
@@ -96,14 +95,14 @@ async def api_temporal_search(events: str = Form(...), topK: int = Form(100),
     except Exception as e:
         return {"error": f"Temporal search failed: {str(e)}"}
 
-@router.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "device": DEVICE,
-        "search_engines": search_engines,
-        "frame_count": sum(map(len, VIDEO_TO_FRAMES.values())),
-        "video_count": len(VIDEO_TO_FRAMES),
-        "supported_search_modes": ["progressive", "consolidated"]
-    }
+# @router.get("/health")
+# async def health_check():
+#     """Health check endpoint"""
+#     return {
+#         "status": "healthy",
+#         "device": DEVICE,
+#         "search_engines": search_engines,
+#         "frame_count": sum(map(len, VIDEO_TO_FRAMES.values())),
+#         "video_count": len(VIDEO_TO_FRAMES),
+#         "supported_search_modes": ["progressive", "consolidated"]
+#     }

@@ -6,10 +6,11 @@ from pyngrok import ngrok
 import socket
 import threading
 import time
-import argparse
-import os
 
-app = FastAPI(title="Video Event Retrieval API v2.0", description="Enhanced multimodal search with temporal capabilities")
+app = FastAPI(
+    title="Video Event Retrieval API v2.0", 
+    description="Enhanced multimodal search with temporal capabilities"
+)
 
 CORS_SETTINGS = {
     "allow_origins": ["*"],

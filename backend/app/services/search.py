@@ -3,34 +3,28 @@ from typing import List, Optional
 import ast
 import io
 import torch
-import open_clip
 from PIL import Image
 from qdrant_client import models
-from app.clients.qdrant_clients import QDRANT_CLIENT_H, QDRANT_CLIENT_K
-from sentence_transformers import SentenceTransformer
-from transformers import AutoModel
-from .translator import Translator
-from .embeddings import Embedding
+from .translator import translator
+from .embeddinngs import CLIP_embedder, BGE_embedder, GTE_embedder, Reranker
 import math
 import json
+from app.clients.qdrant_clients import QDRANT_CLIENT_H, QDRANT_CLIENT_K
 
-
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-VIDEO_TO_FRAMES  = defaultdict(list)
-FRAME_TO_SUBTILES = defaultdict()
-offset = None
-
-search_engines = {
+SearchEngines = {
     "ClipSearch": (QDRANT_CLIENT_H, "Image"),
     "BGESubtitles": (QDRANT_CLIENT_H, "BGE_subtitles"),
     "GTESubtitles": (QDRANT_CLIENT_H, "GTE_subtitles"),
     "BGECaption": (QDRANT_CLIENT_K, "BGE_Caption"),
     "GTECaption":  (QDRANT_CLIENT_K, "GTE_Caption"),
 }
+VIDEO_TO_FRAMES  = defaultdict(list)
+FRAME_TO_SUBTILES = defaultdict()
+offset = None
 
 while True:
-    result, offset = search_engines["ClipSearch"][0].scroll(
-        collection_name=search_engines["ClipSearch"][1],
+    result, offset = SearchEngines["ClipSearch"][0].scroll(
+        collection_name=SearchEngines["ClipSearch"][1],
         scroll_filter=None,
         with_payload=True,
         limit=5000,
@@ -47,8 +41,8 @@ while True:
         break
 
 while True:
-    result, offset = search_engines["BGESubtitles"][0].scroll(
-        collection_name=search_engines["BGESubtitles"][1],
+    result, offset = SearchEngines["BGESubtitles"][0].scroll(
+        collection_name=SearchEngines["BGESubtitles"][1],
         scroll_filter=None,
         with_payload=True,
         limit=5000,
@@ -65,35 +59,6 @@ while True:
 
     if offset is None:
         break
-
-# INSTALL MODEL
-translator = Translator(device=DEVICE)
-clip_model, _, clip_preprocess = open_clip.create_model_and_transforms(model_name="ViT-H-14-quickgelu", 
-                                                                       pretrained="dfn5b", 
-                                                                       device=DEVICE)
-tokenizer = open_clip.get_tokenizer("ViT-H-14-quickgelu")
-clip_model = clip_model.eval()
-clip_embedder = Embedding(
-    model=clip_model, model_name="ViT-H-14-quickgelu", device=DEVICE,
-    preprocess=clip_preprocess, tokenizer=tokenizer, model_type="clip"
-)
-
-bge_model = SentenceTransformer("AITeamVN/Vietnamese_Embedding_v2", device=DEVICE)
-bge_embedder = Embedding(
-    model=bge_model, model_name="AITeamVN/Vietnamese_Embedding_v2",
-    device=DEVICE, model_type="caption"
-)
-
-gte_model = SentenceTransformer("dangvantuan/vietnamese-document-embedding", device=DEVICE, trust_remote_code=True)
-gte_embedder = Embedding(
-    model=gte_model, model_name="dangvantuan/vietnamese-document-embedding",
-    device=DEVICE, model_type="caption"
-)
-
-reranker_model = AutoModel.from_pretrained(
-    'jinaai/jina-reranker-v3', 
-    trust_remote_code=True,
-).half().to(DEVICE).eval()
 
 def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Optional[List] = None):
     qdrant_client, collection_name = search_engine
@@ -130,16 +95,16 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
 
 def retrieve_from_image(contents: bytes, topK: int):
     image = Image.open(io.BytesIO(contents)).convert("RGB")
-    clip_vector_query = clip_embedder._get_image_embedding(image)
-    results = retrieve_with_vector(search_engine=search_engines['ClipSearch'], vector_query=clip_vector_query, 
+    clip_vector_query = CLIP_embedder._get_image_embedding(image)
+    results = retrieve_with_vector(search_engine=SearchEngines['ClipSearch'], vector_query=clip_vector_query, 
                                    topK=topK, frame_ids=None)
     return results
 
 def retrieve_by_clip(query: str, topK: int, frame_ids: Optional[List] = None): 
     clip_query = translator.translate(query)
-    clip_vector_query = clip_embedder._get_query_embedding(clip_query)
+    clip_vector_query = CLIP_embedder._get_query_embedding(clip_query)
     clip_nodes = retrieve_with_vector(
-        search_engine=search_engines['ClipSearch'],
+        search_engine=SearchEngines['ClipSearch'],
         vector_query=clip_vector_query, 
         topK=topK,
         frame_ids=frame_ids
@@ -150,13 +115,13 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
                            frame_ids: Optional[List] = None, 
                            use_caption=True, use_subtitles=False):
     if caption_mode == "bge":
-        vector_query = bge_embedder._get_query_embedding(query)
-        caption_engine = search_engines["BGECaption"]
-        subtitle_engine = search_engines["BGESubtitles"]
+        vector_query = BGE_embedder._get_query_embedding(query)
+        caption_engine = SearchEngines["BGECaption"]
+        subtitle_engine = SearchEngines["BGESubtitles"]
     else:
-        vector_query = gte_embedder._get_query_embedding(query)
-        caption_engine = search_engines["GTECaption"]
-        subtitle_engine = search_engines["GTESubtitles"]
+        vector_query = GTE_embedder._get_query_embedding(query)
+        caption_engine = SearchEngines["GTECaption"]
+        subtitle_engine = SearchEngines["GTESubtitles"]
 
     results = {}
     if use_caption:
@@ -169,9 +134,9 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
 
 def rerank(query, candidates, topK, caption_mode):
     if caption_mode == "bge":
-        qdrant_client, collection_name = search_engines["BGECaption"]
+        qdrant_client, collection_name = SearchEngines["BGECaption"]
     else:
-        qdrant_client, collection_name = search_engines["GTECaption"]
+        qdrant_client, collection_name = SearchEngines["GTECaption"]
 
     frame_ids = [val["id"] for val in candidates]
     scroll_filter = models.Filter(
@@ -198,7 +163,7 @@ def rerank(query, candidates, topK, caption_mode):
         if offset is None:
             break
 
-    top_results = reranker_model.rerank(query, document_list, top_n=topK) 
+    top_results = Reranker.rerank(query, document_list, top_n=topK) 
     return [{"id": id_list[val["index"]], "score": val["relevance_score"]} for val in top_results]
 
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",

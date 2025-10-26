@@ -1,5 +1,8 @@
 import torch
 from llama_index.core.embeddings import BaseEmbedding
+from sentence_transformers import SentenceTransformer
+from transformers import AutoModel
+import open_clip
 from pydantic import PrivateAttr
 from PIL import Image
 from typing import List
@@ -69,3 +72,34 @@ class Embedding(BaseEmbedding):
 
     async def _aget_image_embedding(self, image: Image.Image) -> List[float]:
         return self._get_image_embedding(image)
+    
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+CLIP_model, _, CLIP_preprocess = open_clip.create_model_and_transforms(
+    model_name="ViT-H-14-quickgelu", 
+    pretrained="dfn5b",
+    device=DEVICE
+)
+tokenizer = open_clip.get_tokenizer("ViT-H-14-quickgelu")
+CLIP_model = CLIP_model.eval()
+CLIP_embedder = Embedding(
+    model=CLIP_model, model_name="ViT-H-14-quickgelu", device=DEVICE,
+    preprocess=CLIP_preprocess, tokenizer=tokenizer, model_type="clip"
+)
+
+BGE_model = SentenceTransformer("AITeamVN/Vietnamese_Embedding_v2", device=DEVICE)
+BGE_embedder = Embedding(
+    model=BGE_model, model_name="AITeamVN/Vietnamese_Embedding_v2",
+    device=DEVICE, model_type="caption"
+)
+
+GTE_model = SentenceTransformer("dangvantuan/vietnamese-document-embedding", device=DEVICE, trust_remote_code=True)
+GTE_embedder = Embedding(
+    model=GTE_model, model_name="dangvantuan/vietnamese-document-embedding",
+    device=DEVICE, model_type="caption"
+)
+
+Reranker = AutoModel.from_pretrained(
+    'jinaai/jina-reranker-v3', 
+    trust_remote_code=True,
+).half().to(DEVICE).eval()
