@@ -6,7 +6,7 @@ import torch
 from PIL import Image
 from qdrant_client import models
 from .translator import translator
-from .embeddinngs import CLIP_embedder, BGE_embedder, GTE_embedder, Reranker
+from .embeddings import CLIP_embedder, BGE_embedder, GTE_embedder, Reranker
 import math
 import json
 from app.clients.qdrant_clients import QDRANT_CLIENT_H, QDRANT_CLIENT_K
