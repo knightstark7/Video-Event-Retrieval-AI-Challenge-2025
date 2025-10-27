@@ -510,8 +510,6 @@ function App() {
     // No mode-specific validation - allow any number of events for all modes
 
     setIsSearching(true);
-    const startTime = Date.now();
-    
     // Reset video filter for new temporal search
     setVideoFilter("all");
     
@@ -542,8 +540,7 @@ function App() {
       }
 
       const data = await response.json();
-      const endTime = Date.now();
-      const searchDuration = ((endTime - startTime) / 1000).toFixed(2);
+      const searchDuration = data.duration;
       
       // Check if the response has the expected structure
       if (!data || (!data.results && !data.error)) {
