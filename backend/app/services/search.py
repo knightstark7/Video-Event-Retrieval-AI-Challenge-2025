@@ -62,6 +62,24 @@ while True:
     if offset is None:
         break
 
+def get_vector_query(query: str, mode):
+    if mode == "clip":
+        t1 = time.time()
+        clip_query = translator.translate(query)
+        print(f"Translation time: {time.time() - t1} seconds")
+        clip_vector_query = CLIP_embedder._get_query_embedding(clip_query)
+        return clip_vector_query
+    elif mode == "bge":
+        t2 = time.time()
+        vector_query = BGE_embedder._get_query_embedding(query)
+        print(f"BGE embedding time: {time.time() - t2} seconds")
+        return vector_query
+    else:
+        t3 = time.time()
+        vector_query = GTE_embedder._get_query_embedding(query)
+        print(f"GTE embedding time: {time.time() - t3} seconds")
+        return vector_query
+    
 def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Optional[List] = None):
     qdrant_client, collection_name = search_engine
     if "subtitles" in collection_name:
@@ -109,71 +127,6 @@ def retrieve_from_image(contents: bytes, topK: int):
     )
     return results
 
-def retrieve_by_clip(query: str, topK: int, frame_ids: Optional[List] = None): 
-    print("Retrieving by CLIP...")
-    t1 = time.time()
-    clip_query = translator.translate(query)
-    print(f"Translation time: {time.time() - t1} seconds")
-
-    t2 = time.time()
-    clip_vector_query = CLIP_embedder._get_query_embedding(clip_query)
-    print(f"CLIP embedding time: {time.time() - t2} seconds")
-
-    t3 = time.time()
-    clip_nodes = retrieve_with_vector(
-        search_engine=SearchEngines['ClipSearch'],
-        vector_query=clip_vector_query, 
-        topK=topK,
-        frame_ids=frame_ids
-    )
-    print(f"CLIP retrieval time: {time.time() - t3} seconds")
-    return clip_nodes
-
-def retrieve_by_captions(query: str, caption_mode: str, topK: int,
-                           frame_ids: Optional[List] = None, 
-                           use_caption=True, use_subtitles=False):
-    
-    print(f"Retrieving by captions ({caption_mode})...")
-
-    t1 = time.time()
-    if caption_mode == "bge":
-        vector_query = BGE_embedder._get_query_embedding(query)
-        caption_engine = SearchEngines["BGECaption"]
-        subtitle_engine = SearchEngines["BGESubtitles"]
-    else:
-        vector_query = GTE_embedder._get_query_embedding(query)
-        caption_engine = SearchEngines["GTECaption"]
-        subtitle_engine = SearchEngines["GTESubtitles"]
-    print(f"Text embedding time: {time.time() - t1} seconds")
-
-    results = {}
-    if use_caption and use_subtitles:
-        t3 = time.time()
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_caption = executor.submit(
-                retrieve_with_vector,
-                caption_engine, vector_query, topK, frame_ids
-            )
-            future_subtitle = executor.submit(
-                retrieve_with_vector,
-                subtitle_engine, vector_query, topK, frame_ids
-            )
-            results["caption"] = future_caption.result()
-            results["subtitles"] = future_subtitle.result()
-        print(f"Parallel retrieval time: {time.time() - t3:.3f}s")
-
-    elif use_caption:
-        t3 = time.time()
-        results["caption"] = retrieve_with_vector(caption_engine, vector_query, topK, frame_ids)
-        print(f"Caption retrieval time: {time.time() - t3:.3f}s")
-
-    elif use_subtitles:
-        t4 = time.time()
-        results["subtitles"] = retrieve_with_vector(subtitle_engine, vector_query, topK, frame_ids)
-        print(f"Subtitle retrieval time: {time.time() - t4:.3f}s")
-
-    return results
-
 def rerank(query, candidates, topK, caption_mode):
     qdrant_client, collection_name = (
         SearchEngines["BGECaption"] if caption_mode == "bge" else SearchEngines["GTECaption"]
@@ -203,42 +156,77 @@ def rerank(query, candidates, topK, caption_mode):
         if offset is None:
             break
 
+    start = time.time()
     top_results = Reranker.rerank(query, document_list, top_n=topK) 
+    print(f"Reranking time: {time.time() - start} seconds")
     return [{"id": id_list[val["index"]], "score": val["relevance_score"]} for val in top_results]
 
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
                    alpha: float = 0.5, frame_ids: Optional[List] = None, use_rerank: bool = False):
     if mode == "clip":
-        clip_nodes = retrieve_by_clip(query=query, topK=topK, frame_ids=frame_ids)
+        clip_vector_query = get_vector_query(query, mode="clip")
+
+        t1 = time.time()
+        clip_nodes = retrieve_with_vector(
+            search_engine=SearchEngines['ClipSearch'],
+            vector_query=clip_vector_query, 
+            topK=topK,
+            frame_ids=frame_ids
+        )
+
+        print(f"Clip retrieval time: {time.time() - t1} seconds")
         return clip_nodes
     
     elif mode == "caption":
-        results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
-                                         frame_ids=frame_ids, use_caption=True, use_subtitles=False)
+        vector_query = get_vector_query(query, mode=caption_mode)
+
+        t2 = time.time()
+        caption_nodes = retrieve_with_vector(
+            search_engine=SearchEngines["BGECaption"] if caption_mode == "bge" else SearchEngines["GTECaption"],
+            vector_query=vector_query,
+            topK=topK,
+            frame_ids=frame_ids
+        )
+        print(f"Caption retrieval time: {time.time() - t2} seconds")
 
         if use_rerank:
-            top_results = rerank(query, results['caption'], (topK // 2), caption_mode)
+            top_results = rerank(query, caption_nodes, (topK // 2), caption_mode)
             return top_results
 
-        return results['caption']
+        return caption_nodes
 
     elif mode == "subtitles":
-        results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
-                                         frame_ids=frame_ids, use_caption=False, use_subtitles=True)        
-        return results['subtitles']
+        vector_query = get_vector_query(query, mode=caption_mode)
+
+        t3 = time.time()
+        subtitle_nodes = retrieve_with_vector(
+            search_engine=SearchEngines["BGESubtitles"] if caption_mode == "bge" else SearchEngines["GTESubtitles"],
+            vector_query=vector_query, 
+            topK=topK,
+            frame_ids=frame_ids
+        )     
+        print(f"Subtitle retrieval time: {time.time() - t3} seconds")
+        return subtitle_nodes
     
     else: 
-        clip_nodes = retrieve_by_clip(query=query, topK=topK, frame_ids=frame_ids)
+        clip_vector_query = get_vector_query(query, mode="clip")
+        text_vector_query = get_vector_query(query, mode=caption_mode)
 
-        results = retrieve_by_captions(query=query, caption_mode=caption_mode, topK=topK,
-                                         frame_ids=frame_ids, use_caption=True, use_subtitles=True)
-        
-        caption_nodes = results['caption']
-        subtitle_nodes = results['subtitles']
+        caption_engine = SearchEngines["BGECaption"] if caption_mode == "bge" else SearchEngines["GTECaption"]
+        subtitle_engine = SearchEngines["BGESubtitles"] if caption_mode == "bge" else SearchEngines["GTESubtitles"]
 
         start = time.time()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_clip = executor.submit(retrieve_with_vector,SearchEngines['ClipSearch'], clip_vector_query, topK, frame_ids)
+            future_caption = executor.submit(retrieve_with_vector,caption_engine, text_vector_query, topK, frame_ids)
+            future_subtitle = executor.submit(retrieve_with_vector,subtitle_engine, text_vector_query, topK, frame_ids)
+
+            clip_nodes = future_clip.result()
+            caption_nodes = future_caption.result()
+            subtitle_nodes = future_subtitle.result()
+
+        print(f"Retrieval time: {time.time() - start} seconds")
         combined_scores = defaultdict(float)
-        # weights= (alpha, 1 - alpha)
         weights = (0.45, 0.45, 0.1)
         for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1]), (subtitle_nodes, weights[2])):
             for node in nodes:
@@ -246,10 +234,9 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
 
         top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
         top_results = [{"id": video_id, "score": score} for video_id, score in top_results]
-        print(f"Combining scores time: {time.time() - start} seconds")
+
         if use_rerank:
             top_results = rerank(query, top_results, (topK // 2), caption_mode)
-
         return top_results
 
 def parse_image_name(image_name: str):
