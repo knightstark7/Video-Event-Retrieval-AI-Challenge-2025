@@ -10,6 +10,7 @@ import math
 import json
 from app.clients.qdrant_clients import QDRANT_CLIENT_H, QDRANT_CLIENT_K
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 SearchEngines = {
     "ClipSearch": (QDRANT_CLIENT_H, "Image"),
@@ -146,24 +147,31 @@ def retrieve_by_captions(query: str, caption_mode: str, topK: int,
     print(f"Text embedding time: {time.time() - t1} seconds")
 
     results = {}
-    if use_caption:
-        t2 = time.time()
-        results["caption"] = retrieve_with_vector(
-            search_engine=caption_engine, 
-            vector_query=vector_query,
-            topK=topK, 
-            frame_ids=frame_ids
-        )
-        print(f"Caption retrieval time: {time.time() - t2} seconds")
-    if use_subtitles:
+    if use_caption and use_subtitles:
         t3 = time.time()
-        results["subtitles"] = retrieve_with_vector(
-            search_engine=subtitle_engine, 
-            vector_query=vector_query,
-            topK=topK, 
-            frame_ids=frame_ids
-        )
-        print(f"Subtitle retrieval time: {time.time() - t3} seconds")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_caption = executor.submit(
+                retrieve_with_vector,
+                caption_engine, vector_query, topK, frame_ids
+            )
+            future_subtitle = executor.submit(
+                retrieve_with_vector,
+                subtitle_engine, vector_query, topK, frame_ids
+            )
+            results["caption"] = future_caption.result()
+            results["subtitles"] = future_subtitle.result()
+        print(f"Parallel retrieval time: {time.time() - t3:.3f}s")
+
+    elif use_caption:
+        t3 = time.time()
+        results["caption"] = retrieve_with_vector(caption_engine, vector_query, topK, frame_ids)
+        print(f"Caption retrieval time: {time.time() - t3:.3f}s")
+
+    elif use_subtitles:
+        t4 = time.time()
+        results["subtitles"] = retrieve_with_vector(subtitle_engine, vector_query, topK, frame_ids)
+        print(f"Subtitle retrieval time: {time.time() - t4:.3f}s")
+
     return results
 
 def rerank(query, candidates, topK, caption_mode):
