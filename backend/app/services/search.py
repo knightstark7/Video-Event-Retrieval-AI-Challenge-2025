@@ -216,7 +216,7 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         subtitle_engine = SearchEngines["BGESubtitles"] if caption_mode == "bge" else SearchEngines["GTESubtitles"]
 
         start = time.time()
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with ThreadPoolExecutor(max_workers=4) as executor:
             future_clip = executor.submit(retrieve_with_vector,SearchEngines['ClipSearch'], clip_vector_query, topK, frame_ids)
             future_caption = executor.submit(retrieve_with_vector,caption_engine, text_vector_query, topK, frame_ids)
             future_subtitle = executor.submit(retrieve_with_vector,subtitle_engine, text_vector_query, topK, frame_ids)
