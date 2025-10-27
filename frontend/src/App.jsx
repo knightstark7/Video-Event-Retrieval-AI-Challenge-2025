@@ -540,7 +540,7 @@ function App() {
       }
 
       const data = await response.json();
-      const searchDuration = data.duration;
+      const searchDuration = data.search_info.duration;
       
       // Check if the response has the expected structure
       if (!data || (!data.results && !data.error)) {
