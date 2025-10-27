@@ -67,17 +67,20 @@ def get_vector_query(query: str, mode):
         t1 = time.time()
         clip_query = translator.translate(query)
         print(f"Translation time: {time.time() - t1} seconds")
+
+        t2 = time.time()
         clip_vector_query = CLIP_embedder._get_query_embedding(clip_query)
+        print(f"CLIP embedding time: {time.time() - t2} seconds")
         return clip_vector_query
     elif mode == "bge":
-        t2 = time.time()
+        t3 = time.time()
         vector_query = BGE_embedder._get_query_embedding(query)
-        print(f"BGE embedding time: {time.time() - t2} seconds")
+        print(f"BGE embedding time: {time.time() - t3} seconds")
         return vector_query
     else:
-        t3 = time.time()
+        t4 = time.time()
         vector_query = GTE_embedder._get_query_embedding(query)
-        print(f"GTE embedding time: {time.time() - t3} seconds")
+        print(f"GTE embedding time: {time.time() - t4} seconds")
         return vector_query
     
 def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Optional[List] = None):
