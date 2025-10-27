@@ -105,7 +105,7 @@ def retrieve_with_vector(search_engine, vector_query, topK: int, frame_ids: Opti
         query_filter=query_filter,
     )
 
-    if "subtitles" in collection_name.lower():
+    if "subtitles" in collection_name:
         results = []
         for node in nodes:
             frame_list_str = node.payload.get("frame_list", "[]")
