@@ -36,7 +36,7 @@ while True:
     for point in result:
         fid = point.payload.get("id")
         if fid:
-            vid = fid.rsplit("_", 2)[0]
+            vid = "_".join(fid.split("_")[:2])
             VIDEO_TO_FRAMES [vid].append(fid)
 
     if offset is None:
