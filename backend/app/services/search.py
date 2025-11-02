@@ -218,47 +218,47 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         caption_engine = SearchEngines["BGECaption"] if caption_mode == "bge" else SearchEngines["GTECaption"]
         subtitle_engine = SearchEngines["BGESubtitles"] if caption_mode == "bge" else SearchEngines["GTESubtitles"]
 
-        if alpha > 0.5:
-            print("Using parallel retrieval")
-            start = time.time()
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                future_clip = executor.submit(retrieve_with_vector,SearchEngines['ClipSearch'], clip_vector_query, topK, frame_ids)
-                future_caption = executor.submit(retrieve_with_vector,caption_engine, text_vector_query, topK, frame_ids)
-                future_subtitle = executor.submit(retrieve_with_vector,subtitle_engine, text_vector_query, topK, frame_ids)
+        # if alpha > 0.5:
+        print("Using parallel retrieval")
+        start = time.time()
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            future_clip = executor.submit(retrieve_with_vector,SearchEngines['ClipSearch'], clip_vector_query, topK, frame_ids)
+            future_caption = executor.submit(retrieve_with_vector,caption_engine, text_vector_query, topK, frame_ids)
+            future_subtitle = executor.submit(retrieve_with_vector,subtitle_engine, text_vector_query, topK, frame_ids)
 
-                clip_nodes = future_clip.result()
-                caption_nodes = future_caption.result()
-                subtitle_nodes = future_subtitle.result()
+            clip_nodes = future_clip.result()
+            caption_nodes = future_caption.result()
+            subtitle_nodes = future_subtitle.result()
 
-            print(f"Retrieval time: {time.time() - start} seconds")
-        else:
-            print("Using sequential retrieval")
-            t4 = time.time()
-            clip_nodes = retrieve_with_vector(
-                search_engine=SearchEngines['ClipSearch'],
-                vector_query=clip_vector_query, 
-                topK=topK,
-                frame_ids=frame_ids
-            )
-            print(f"Clip retrieval time: {time.time() - t4} seconds")
+        print(f"Retrieval time: {time.time() - start} seconds")
+        # else:
+        #     print("Using sequential retrieval")
+        #     t4 = time.time()
+        #     clip_nodes = retrieve_with_vector(
+        #         search_engine=SearchEngines['ClipSearch'],
+        #         vector_query=clip_vector_query, 
+        #         topK=topK,
+        #         frame_ids=frame_ids
+        #     )
+        #     print(f"Clip retrieval time: {time.time() - t4} seconds")
 
-            t5 = time.time()
-            caption_nodes = retrieve_with_vector(
-                search_engine=caption_engine,
-                vector_query=text_vector_query,
-                topK=topK,
-                frame_ids=frame_ids
-            )
-            print(f"Caption retrieval time: {time.time() - t5} seconds")
-            t6 = time.time()
-            subtitle_nodes = retrieve_with_vector(
-                search_engine=subtitle_engine,
-                vector_query=text_vector_query, 
-                topK=topK,
-                frame_ids=frame_ids
-            ) 
-            print(f"Subtitle retrieval time: {time.time() - t6} seconds")    
-            print(f"Retrieval time: {time.time() - t4} seconds")        
+        #     t5 = time.time()
+        #     caption_nodes = retrieve_with_vector(
+        #         search_engine=caption_engine,
+        #         vector_query=text_vector_query,
+        #         topK=topK,
+        #         frame_ids=frame_ids
+        #     )
+        #     print(f"Caption retrieval time: {time.time() - t5} seconds")
+        #     t6 = time.time()
+        #     subtitle_nodes = retrieve_with_vector(
+        #         search_engine=subtitle_engine,
+        #         vector_query=text_vector_query, 
+        #         topK=topK,
+        #         frame_ids=frame_ids
+        #     ) 
+        #     print(f"Subtitle retrieval time: {time.time() - t6} seconds")    
+        #     print(f"Retrieval time: {time.time() - t4} seconds")        
         combined_scores = defaultdict(float)
         weights = (0.45, 0.45, 0.1)
         for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1]), (subtitle_nodes, weights[2])):
