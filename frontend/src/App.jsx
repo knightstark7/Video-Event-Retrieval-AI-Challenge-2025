@@ -1,7 +1,7 @@
 /**
  * Video Event Retrieval AI Challenge 2025
  * Multimodal search interface with text and image search capabilities
- * Supports TRAKE, Q&A, and Textual KIS modes
+ * Supports Q&A and Textual KIS modes with temporal search
  */
 
 import React, { useState, useEffect } from "react";
@@ -70,7 +70,7 @@ function App() {
   const [browseCurrentPage, setBrowseCurrentPage] = useState(0);
   const [browseZoomedFrame, setBrowseZoomedFrame] = useState(null);
   
-  // Zoom State for TRAKE frames
+  // Zoom State for frames
   const [zoomedFrame, setZoomedFrame] = useState(null);
   // Temporal Search State (available for all modes)
   const [temporalSearch, setTemporalSearch] = useState({
@@ -79,16 +79,6 @@ function App() {
     currentPage: 0,
     isActive: false,
     searchMode: "progressive"  // "progressive" or "consolidated"
-  });
-
-  // TRAKE Mode State (original design)
-  const [trakeMode, setTrakeMode] = useState({
-    selectedVideo: null,
-    videoFrames: [],
-    eventSequences: [],
-    currentSequence: [],
-    currentPage: 0,
-    framesPerPage: 10
   });
   // Constants
   const pageSize = 8;
@@ -342,114 +332,6 @@ function App() {
     }));
   };
 
-  const fetchVideoFrames = async (videoId) => {
-    const parts = videoId.split('_');
-    const batch = parts[0];
-    const videoNum = parts[1];
-    const baseVideoId = `${batch}_${videoNum}`;
-
-    try {
-      // Load the keyframes index based on video batch
-      const batchConfig = getBatchConfig(videoId);
-      const indexResponse = await fetch(`/${batchConfig.mediaInfoDir}/keyframes_index.json`);
-
-      if (indexResponse.ok) {
-        const keyframesIndex = await indexResponse.json();
-        const imagePaths = keyframesIndex[baseVideoId];
-
-        if (imagePaths && imagePaths.length > 0) {
-          // Convert image paths to frame objects
-          const frames = imagePaths.map(imagePath => {
-            // Extract frame number from path (e.g., /keyframes/L21/L21_V008/L21_V008_1200.jpg -> 1200)
-            const filename = imagePath.split('/').pop();
-            const frameMatch = filename.match(/_(\d+)\.jpg$/);
-            const frameNum = frameMatch ? parseInt(frameMatch[1]) : 0;
-
-            return {
-              videoId: `${baseVideoId}_${frameNum}`,
-              frameNum: frameNum,
-              imagePath: imagePath
-            };
-          });
-
-          // Sort by frame number
-          frames.sort((a, b) => a.frameNum - b.frameNum);
-          return frames;
-        }
-      }
-    } catch (error) {
-      console.error('Error loading keyframes index:', error);
-    }
-
-    return [];
-  };
-
-  const selectVideoForTrake = async (videoId) => {
-    const parts = videoId.split('_');
-    const baseVideoId = `${parts[0]}_${parts[1]}`;
-
-    setTrakeMode(prev => ({
-      ...prev,
-      selectedVideo: baseVideoId,
-      videoFrames: [],
-      currentSequence: [],
-      currentPage: 0
-    }));
-
-    const frames = await fetchVideoFrames(videoId);
-
-    setTrakeMode(prev => ({
-      ...prev,
-      videoFrames: frames
-    }));
-  };
-
-  const goToTrakePage = (pageIndex) => {
-    const totalPages = Math.ceil(trakeMode.videoFrames.length / 10);
-    let newPage = pageIndex;
-
-    if (newPage < 0) newPage = 0;
-    if (newPage >= totalPages) newPage = totalPages - 1;
-
-    setTrakeMode(prev => ({
-      ...prev,
-      currentPage: newPage
-    }));
-  };
-
-  const addFrameToSequence = (frameNum) => {
-    setTrakeMode(prev => ({
-      ...prev,
-      currentSequence: [...prev.currentSequence, frameNum].sort((a, b) => a - b)
-    }));
-  };
-
-  const removeFrameFromSequence = (frameNum) => {
-    setTrakeMode(prev => ({
-      ...prev,
-      currentSequence: prev.currentSequence.filter(f => f !== frameNum)
-    }));
-  };
-
-  const saveEventSequence = () => {
-    if (trakeMode.currentSequence.length === 0) {
-      alert("Please select at least one frame for the event sequence.");
-      return;
-    }
-
-    setTrakeMode(prev => ({
-      ...prev,
-      eventSequences: [
-        ...prev.eventSequences,
-        {
-          videoId: prev.selectedVideo,
-          frames: [...prev.currentSequence]
-        }
-      ],
-      currentSequence: []
-    }));
-  };
-
   // Temporal Search Functions (available for all modes)
   const handleTemporalEventChange = (index, value) => {
     setTemporalSearch(prev => ({
@@ -484,12 +366,6 @@ function App() {
           topK: Math.min(topK * 0.8, 50), // Fewer results for detailed Q&A analysis
           searchMode: "hybrid", // Balanced approach for questions
           alpha: 0.7 // More text-focused for questions
-        };
-      case "trake":
-        return {
-          topK: topK, // Use standard topK value, no enhancement
-          searchMode: searchMode, // Use current mode setting
-          alpha: alpha // Use current alpha setting
         };
       default: // textual-kis
         return {
@@ -590,14 +466,9 @@ function App() {
       } else {
         // Progressive mode: Display identical to consolidated mode with complete timeline
         // Backend returns array of video results with frame sequences
-        
-        let processedResults;
-        if (appMode === "trake") {
-          processedResults = (data.results || []).slice(0, params.topK);
-        } else {
-          processedResults = (data.results || []).slice(0, params.topK);
-        }
-        
+
+        const processedResults = (data.results || []).slice(0, params.topK);
+
         mappedResults = processedResults.map(videoResult => {
           // Get the best frame sequence (first one from beam search)
           const bestSequence = videoResult.frame_sequence[0] || [];
@@ -674,13 +545,6 @@ function App() {
     setPageIndex(0);
   };
 
-  const deleteEventSequence = (index) => {
-    setTrakeMode(prev => ({
-      ...prev,
-      eventSequences: prev.eventSequences.filter((_, i) => i !== index)
-    }));
-  };
-
   // Helper function to extract frame timestamp from full frame ID
   const extractFrameTimestamp = (frameId) => {
     const parts = frameId.split('_');
@@ -732,13 +596,151 @@ function App() {
     return csvData;
   };
 
+  const downloadJSON = async () => {
+    let jsonData = { answerSets: [{ answers: [] }] };
+
+    // Handle temporal search results with TRAKE format
+    if (searchModeType === "temporal" && temporalSearch.isActive && temporalSearch.results.length > 0) {
+      temporalSearch.results.forEach(result => {
+        if (result.videoTimeline && selectedItems.has(result.videoId)) {
+          const videoId = result.videoTimeline.video_id;
+          const frameSequence = result.videoTimeline.image.map(extractFrameTimestamp);
+          const text = `TR-${videoId}-${frameSequence.join(',')}`;
+          jsonData.answerSets[0].answers.push({ text });
+        }
+      });
+
+      const defaultName = "temporal_search_results";
+      const jsonContent = JSON.stringify(jsonData, null, 2);
+      const blob = new Blob([jsonContent], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${csvFileName || defaultName}.json`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      return;
+    }
+
+    if (appMode === "textual-kis") {
+      // KIS mode: Convert frame ID to time(ms) using FPS
+      if (selectedItems.size === 0) {
+        alert("Please select at least one item to download.");
+        return;
+      }
+
+      // Load FPS for each video and calculate time in milliseconds
+      const videoFpsCache = {};
+      for (const videoId of selectedItems) {
+        const parts = videoId.split('_');
+        if (parts.length >= 3) {
+          const batch = parts[0];
+          const videoNum = parts[1];
+          const frameId = parseInt(parts[2]);
+          const mediaItemName = `${batch}_${videoNum}`;
+
+          // Get FPS from cache or fetch it
+          if (!videoFpsCache[mediaItemName]) {
+            try {
+              const batchConfig = getBatchConfig(videoId);
+              const mediaInfoPath = `/${batchConfig.mediaInfoDir}/${mediaItemName}.json`;
+              const response = await fetch(mediaInfoPath);
+              if (response.ok) {
+                const videoInfo = await response.json();
+                videoFpsCache[mediaItemName] = videoInfo.fps || 25;
+              } else {
+                videoFpsCache[mediaItemName] = 25; // Default FPS
+              }
+            } catch (error) {
+              console.error(`Error loading FPS for ${mediaItemName}:`, error);
+              videoFpsCache[mediaItemName] = 25; // Default FPS
+            }
+          }
+
+          const fps = videoFpsCache[mediaItemName];
+          const timeMs = Math.round((frameId / fps) * 1000);
+
+          jsonData.answerSets[0].answers.push({
+            mediaItemName: mediaItemName,
+            start: timeMs,
+            end: timeMs
+          });
+        }
+      }
+
+      const defaultName = "kis_results";
+      const jsonContent = JSON.stringify(jsonData, null, 2);
+      const blob = new Blob([jsonContent], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${csvFileName || defaultName}.json`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+
+    } else if (appMode === "qa") {
+      // QA mode: Convert frame ID to time(ms) using FPS
+      if (selectedItems.size === 0) {
+        alert("Please select at least one item to download.");
+        return;
+      }
+
+      // Load FPS for each video and calculate time in milliseconds
+      const videoFpsCache = {};
+      for (const videoId of selectedItems) {
+        const parts = videoId.split('_');
+        if (parts.length >= 3) {
+          const batch = parts[0];
+          const videoNum = parts[1];
+          const frameId = parseInt(parts[2]);
+          const answer = frameAnswers[videoId] || "";
+          const mediaItemName = `${batch}_${videoNum}`;
+
+          // Get FPS from cache or fetch it
+          if (!videoFpsCache[mediaItemName]) {
+            try {
+              const batchConfig = getBatchConfig(videoId);
+              const mediaInfoPath = `/${batchConfig.mediaInfoDir}/${mediaItemName}.json`;
+              const response = await fetch(mediaInfoPath);
+              if (response.ok) {
+                const videoInfo = await response.json();
+                videoFpsCache[mediaItemName] = videoInfo.fps || 25;
+              } else {
+                videoFpsCache[mediaItemName] = 25; // Default FPS
+              }
+            } catch (error) {
+              console.error(`Error loading FPS for ${mediaItemName}:`, error);
+              videoFpsCache[mediaItemName] = 25; // Default FPS
+            }
+          }
+
+          const fps = videoFpsCache[mediaItemName];
+          const timeMs = Math.round((frameId / fps) * 1000);
+
+          const text = `QA-${answer}-${mediaItemName}-${timeMs}`;
+          jsonData.answerSets[0].answers.push({ text });
+        }
+      }
+
+      const defaultName = "qa_results";
+      const jsonContent = JSON.stringify(jsonData, null, 2);
+      const blob = new Blob([jsonContent], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${csvFileName || defaultName}.json`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+    }
+  };
+
   const downloadCSV = () => {
     // Handle temporal search results
     if (searchModeType === "temporal" && temporalSearch.isActive && temporalSearch.results.length > 0) {
-      const hasTimelineResults = temporalSearch.results.some(result => 
+      const hasTimelineResults = temporalSearch.results.some(result =>
         result.videoTimeline
       );
-      
+
       if (hasTimelineResults) {
         const csvData = generateTimelineCSV(temporalSearch.results);
         downloadCSVFile(csvData, 'timeline_sequences');
@@ -746,29 +748,6 @@ function App() {
         const csvData = generateSequentialCSV(temporalSearch.results);
         downloadCSVFile(csvData, 'temporal_search_results');
       }
-      return;
-    }
-
-    if (appMode === "trake") {
-      if (trakeMode.eventSequences.length === 0) {
-        alert("Please create at least one event sequence to download.");
-        return;
-      }
-
-      const csvData = [];
-      trakeMode.eventSequences.forEach(sequence => {
-        const framesList = sequence.frames.join(', ');
-        csvData.push(`${sequence.videoId}, ${framesList}`);
-      });
-
-      const csvContent = csvData.join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${csvFileName || 'trake_event_sequences'}.csv`;
-      link.click();
-      window.URL.revokeObjectURL(url);
       return;
     }
 
@@ -988,12 +967,6 @@ function App() {
     setSearchTime(null);
     setSelectedItems(new Set());
     setFrameAnswers({});
-    setTrakeMode({
-      selectedVideo: null,
-      videoFrames: [],
-      eventSequences: [],
-      currentSequence: []
-    });
 
     // Clear temporal search state when doing normal search
     setTemporalSearch({
@@ -1138,7 +1111,6 @@ function App() {
             >
               <option value="textual-kis">📋 Textual KIS</option>
               <option value="qa">❓ Q&A</option>
-              <option value="trake">🎬 TRAKE</option>
             </select>
           </div>
 
@@ -1460,13 +1432,12 @@ function App() {
             )}
           </div>
 
-          {((results.length > 0 && appMode !== "trake") || (appMode === "trake" && trakeMode.eventSequences.length > 0) || (searchModeType === "temporal" && temporalSearch.isActive)) && (
+          {(results.length > 0 || (searchModeType === "temporal" && temporalSearch.isActive)) && (
             <div className="csv-export-section">
               <label className="csv-label">
                 Export Selected ({
                   (searchModeType === "temporal" && temporalSearch.isActive) ? "Temporal Results" :
                   appMode === "qa" ? "Q&A Format" :
-                    appMode === "trake" ? "TRAKE Format" :
                       "Textual KIS"
                 }):
               </label>
@@ -1484,15 +1455,7 @@ function App() {
                       {temporalSearch.results.length} temporal results
                       <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
                         From {temporalSearch.events.filter(e => e.trim()).length} events
-                        {appMode === "trake" && " (Final event results only)"}
                         {appMode === "qa" && " (Q&A analysis)"}
-                      </div>
-                    </>
-                  ) : appMode === "trake" && searchModeType === "normal" ? (
-                    <>
-                      {trakeMode.eventSequences.length} event sequences
-                      <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
-                        Current sequence: {trakeMode.currentSequence.length} frames
                       </div>
                     </>
                   ) : (
@@ -1507,39 +1470,47 @@ function App() {
                   )}
                 </div>
                 <div className="csv-buttons">
-                  {(appMode !== "trake" || (appMode === "trake" && searchModeType === "temporal")) && (
-                    <>
-                      <button className="csv-btn select-all" onClick={selectAllCurrentPage}>
-                        Select Page
-                      </button>
-                      <button className="csv-btn clear-all" onClick={clearAllSelection}>
-                        Clear All
-                      </button>
-                    </>
-                  )}
+                  <button className="csv-btn select-all" onClick={selectAllCurrentPage}>
+                    Select Page
+                  </button>
+                  <button className="csv-btn clear-all" onClick={clearAllSelection}>
+                    Clear All
+                  </button>
                   <button
                     className="csv-btn download"
                     onClick={downloadCSV}
                     disabled={
                       (searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.results.length === 0 :
-                      appMode === "trake" ? trakeMode.eventSequences.length === 0 : 
                       selectedItems.size === 0
                     }
                   >
                     📥 Download CSV
                   </button>
+                  <button
+                    className="csv-btn download"
+                    onClick={downloadJSON}
+                    disabled={
+                      (searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.results.length === 0 :
+                      selectedItems.size === 0
+                    }
+                  >
+                    📦 Download JSON
+                  </button>
                 </div>
               </div>
-              {appMode === "qa" && (
+              {searchModeType === "temporal" && temporalSearch.isActive ? (
                 <div style={{ fontSize: "11px", color: "#666", marginTop: "5px" }}>
-                  Format: videoFile,frameNum,answer
+                  CSV: L10_V001, 1200, 1850 | JSON: TR-video-frameIDs
                 </div>
-              )}
-              {appMode === "trake" && (
+              ) : appMode === "qa" ? (
                 <div style={{ fontSize: "11px", color: "#666", marginTop: "5px" }}>
-                  Format: L10_V001, 1200, 1850, 2100, 2450
+                  CSV: videoFile,frameNum,answer | JSON: QA-answer-video-time(ms)
                 </div>
-              )}
+              ) : appMode === "textual-kis" ? (
+                <div style={{ fontSize: "11px", color: "#666", marginTop: "5px" }}>
+                  JSON: mediaItemName with start/end time(ms)
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -1598,17 +1569,15 @@ function App() {
               }}>
                 {(searchModeType === "temporal" && temporalSearch.isActive) ? (
                   <div>
-                    {temporalSearch.searchMode === "consolidated" ? "🎯" : "🔄"} 
-                    {appMode === "qa" ? " Q&A" : appMode === "trake" ? " TRAKE" : ""} 
+                    {temporalSearch.searchMode === "consolidated" ? "🎯" : "🔄"}
+                    {appMode === "qa" ? " Q&A" : ""}
                     {" "}{temporalSearch.searchMode.charAt(0).toUpperCase() + temporalSearch.searchMode.slice(1)} temporal search completed in {searchTime}s
                     <div style={{fontSize: "12px", marginTop: "2px"}}>
-                      {temporalSearch.searchMode === "consolidated" ? 
+                      {temporalSearch.searchMode === "consolidated" ?
                         `${results.length} video timelines from ${temporalSearch.events.filter(e => e.trim()).length} events` :
                         `${results.length} results from ${temporalSearch.events.filter(e => e.trim()).length} events`
                       }
                       {appMode === "qa" && " (optimized for Q&A)"}
-                      {appMode === "trake" && temporalSearch.searchMode === "progressive" && " (final event only)"}
-                      {appMode === "trake" && temporalSearch.searchMode === "consolidated" && " (video sequences)"}
                     </div>
                   </div>
                 ) : (
@@ -1650,17 +1619,6 @@ function App() {
                                 {item.videoTimeline.video_id} | Timeline Score: {item.videoTimeline.score.toFixed(3)}
                               </span>
                             </div>
-                            <button
-                              className="timeline-view-frames-btn"
-                              onClick={() => {
-                                if (appMode === 'trake') {
-                                  selectVideoForTrake(item.videoId);
-                                }
-                              }}
-                              title="View detailed frame sequence"
-                            >
-                              🎬 View Frames
-                            </button>
                           </div>
                         </div>
                         <div 
@@ -1800,109 +1758,6 @@ function App() {
           </>
         )}
 
-        {/* TRAKE Mode Video Frames Viewer */}
-        {appMode === "trake" && trakeMode.selectedVideo && trakeMode.videoFrames.length > 0 && (
-          <div className="trake-video-section">
-            <div className="trake-header">
-              <h3>🎬 Video Frames: {trakeMode.selectedVideo}</h3>
-              <div className="trake-controls">
-                <div className="sequence-info">
-                  Current Sequence: [{trakeMode.currentSequence.join(', ')}]
-                </div>
-                <button
-                  className="save-sequence-btn"
-                  onClick={saveEventSequence}
-                  disabled={trakeMode.currentSequence.length === 0}
-                >
-                  💾 Save Sequence
-                </button>
-              </div>
-            </div>
-
-            <div className="trake-pagination-info">
-              Showing {trakeMode.currentPage * 10 + 1}-{Math.min((trakeMode.currentPage + 1) * 10, trakeMode.videoFrames.length)} of {trakeMode.videoFrames.length} frames
-            </div>
-
-            <div className="trake-frames-grid">
-              {trakeMode.videoFrames
-                .slice(trakeMode.currentPage * 10, (trakeMode.currentPage + 1) * 10)
-                .map((frame, idx) => (
-                  <div key={frame.videoId} className={`trake-frame ${trakeMode.currentSequence.includes(frame.frameNum) ? 'selected' : ''}`}>
-                    <div className="trake-frame-controls">
-                      <input
-                        type="checkbox"
-                        checked={trakeMode.currentSequence.includes(frame.frameNum)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            addFrameToSequence(frame.frameNum);
-                          } else {
-                            removeFrameFromSequence(frame.frameNum);
-                          }
-                        }}
-                      />
-                      <span className="frame-number">Frame {frame.frameNum}</span>
-                    </div>
-                    <div className="trake-frame-image-container">
-                      <img
-                        src={frame.imagePath}
-                        alt={`Frame ${frame.frameNum}`}
-                        className="trake-frame-image"
-                        onClick={() => setZoomedFrame(frame)}
-                        onError={(e) => {
-                          e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5GcmFtZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+";
-                          e.target.style.filter = "grayscale(1)";
-                        }}
-                      />
-                      <div className="zoom-indicator">🔍</div>
-                    </div>
-                  </div>
-                ))}
-            </div>
-
-            {trakeMode.videoFrames.length > 10 && (
-              <div className="trake-pagination">
-                <button
-                  onClick={() => goToTrakePage(trakeMode.currentPage - 1)}
-                  disabled={trakeMode.currentPage === 0}
-                  className="trake-page-btn"
-                >
-                  Previous
-                </button>
-
-                <span className="trake-page-info">
-                  Page {trakeMode.currentPage + 1} of {Math.ceil(trakeMode.videoFrames.length / 10)}
-                </span>
-
-                <button
-                  onClick={() => goToTrakePage(trakeMode.currentPage + 1)}
-                  disabled={trakeMode.currentPage >= Math.ceil(trakeMode.videoFrames.length / 10) - 1}
-                  className="trake-page-btn"
-                >
-                  Next
-                </button>
-              </div>
-            )}
-
-            {trakeMode.eventSequences.length > 0 && (
-              <div className="saved-sequences">
-                <h4>💾 Saved Event Sequences</h4>
-                {trakeMode.eventSequences.map((sequence, idx) => (
-                  <div key={idx} className="saved-sequence">
-                    <span className="sequence-text">
-                      {sequence.videoId}: [{sequence.frames.join(', ')}]
-                    </span>
-                    <button
-                      className="delete-sequence-btn"
-                      onClick={() => deleteEventSequence(idx)}
-                    >
-                      🗑️ Delete
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
         </div>
 
         {/* Video Browse Display (Right Side) */}
@@ -2356,7 +2211,7 @@ function App() {
                 fontWeight: 'bold',
                 textAlign: 'center'
               }}>
-                {trakeMode.selectedVideo} - Frame {zoomedFrame.frameNum}
+                Frame {zoomedFrame.frameNum}
               </div>
 
               {/* Zoomed image */}
@@ -2404,8 +2259,7 @@ function App() {
               <div className="temporal-search-info">
                 <span>
                   {appMode === "textual-kis" && "🔍 Sequential Event Search"}
-                  {appMode === "qa" && "❓ Multi-Event Q&A Analysis"} 
-                  {appMode === "trake" && "🎬 Video Sequence Analysis"}
+                  {appMode === "qa" && "❓ Multi-Event Q&A Analysis"}
                 </span>
                 <div style={{fontSize: "12px", color: "#888", marginTop: "4px"}}>
                   Use the temporal search controls in the sidebar to define events
