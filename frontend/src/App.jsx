@@ -80,6 +80,39 @@ function App() {
     isActive: false,
     searchMode: "progressive"  // "progressive" or "consolidated"
   });
+
+  // DRES Authentication State
+  const [dresConfig, setDresConfig] = useState({
+    baseUrl: "https://eventretrieval.oj.io.vn",
+    username: "",
+    password: "",
+    sessionId: "",
+    isAuthenticated: false
+  });
+
+  // DRES Evaluation State
+  const [dresEvaluation, setDresEvaluation] = useState({
+    evaluations: [],
+    selectedEvaluationId: "",
+    evaluationName: "",
+    status: ""
+  });
+
+  // DRES Submission State
+  const [dresSubmission, setDresSubmission] = useState({
+    isSubmitting: false,
+    lastSubmission: null,
+    submissionHistory: []
+  });
+
+  // DRES Review State (for manual answer editing before submission)
+  const [dresReview, setDresReview] = useState({
+    isOpen: false,
+    items: [], // Array of {videoId, frameId, timeMs, answer, videoName}
+    mode: "", // "kis", "qa", "trake"
+    editedAnswers: {} // videoId -> edited answer
+  });
+
   // Constants
   const pageSize = 8;
 
@@ -330,6 +363,147 @@ function App() {
       ...prev,
       [videoId]: answer
     }));
+  };
+
+  // DRES API Functions
+  const dresLogin = async (username, password) => {
+    try {
+      const response = await fetch(`${dresConfig.baseUrl}/api/v2/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Login failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      setDresConfig(prev => ({
+        ...prev,
+        username: data.username,
+        sessionId: data.sessionId,
+        isAuthenticated: true,
+        password: "" // Clear password after successful login
+      }));
+
+      // Auto-fetch evaluations after login
+      await dresGetEvaluations(data.sessionId);
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('DRES login error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const dresLogout = () => {
+    setDresConfig({
+      baseUrl: dresConfig.baseUrl,
+      username: "",
+      password: "",
+      sessionId: "",
+      isAuthenticated: false
+    });
+    setDresEvaluation({
+      evaluations: [],
+      selectedEvaluationId: "",
+      evaluationName: "",
+      status: ""
+    });
+  };
+
+  const dresGetEvaluations = async (sessionId) => {
+    try {
+      const response = await fetch(`${dresConfig.baseUrl}/api/v2/client/evaluation/list?session=${sessionId}`, {
+        method: 'GET'
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch evaluations: ${response.status}`);
+      }
+
+      const evaluations = await response.json();
+
+      setDresEvaluation(prev => ({
+        ...prev,
+        evaluations: evaluations
+      }));
+
+      // Auto-select first ACTIVE evaluation
+      const activeEval = evaluations.find(e => e.status === 'ACTIVE');
+      if (activeEval) {
+        setDresEvaluation(prev => ({
+          ...prev,
+          selectedEvaluationId: activeEval.id,
+          evaluationName: activeEval.name,
+          status: activeEval.status
+        }));
+      }
+
+      return { success: true, evaluations };
+    } catch (error) {
+      console.error('DRES get evaluations error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const dresSubmitResults = async (answerSets) => {
+    if (!dresConfig.sessionId || !dresEvaluation.selectedEvaluationId) {
+      return { success: false, error: 'Not authenticated or no evaluation selected' };
+    }
+
+    setDresSubmission(prev => ({ ...prev, isSubmitting: true }));
+
+    try {
+      const response = await fetch(
+        `${dresConfig.baseUrl}/api/v2/submit/${dresEvaluation.selectedEvaluationId}?session=${dresConfig.sessionId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(answerSets)
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Submission failed: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json();
+
+      // Update submission history
+      const submissionRecord = {
+        timestamp: new Date().toISOString(),
+        evaluation: dresEvaluation.evaluationName,
+        mode: searchModeType === "temporal" ? "TRAKE" : appMode.toUpperCase(),
+        itemCount: answerSets.answerSets[0].answers.length,
+        status: 'success'
+      };
+
+      setDresSubmission(prev => ({
+        ...prev,
+        isSubmitting: false,
+        lastSubmission: submissionRecord,
+        submissionHistory: [submissionRecord, ...prev.submissionHistory].slice(0, 10)
+      }));
+
+      return { success: true, result };
+    } catch (error) {
+      console.error('DRES submission error:', error);
+
+      setDresSubmission(prev => ({
+        ...prev,
+        isSubmitting: false
+      }));
+
+      return { success: false, error: error.message };
+    }
   };
 
   // Temporal Search Functions (available for all modes)
@@ -734,6 +908,288 @@ function App() {
     }
   };
 
+  // Generate JSON for DRES submission (reuses downloadJSON logic)
+  const generateDRESSubmissionJSON = async () => {
+    let jsonData = { answerSets: [{ answers: [] }] };
+
+    // Handle temporal search results with TRAKE format
+    if (searchModeType === "temporal" && temporalSearch.isActive && temporalSearch.results.length > 0) {
+      temporalSearch.results.forEach(result => {
+        if (result.videoTimeline && selectedItems.has(result.videoId)) {
+          const videoId = result.videoTimeline.video_id;
+          const frameSequence = result.videoTimeline.image.map(extractFrameTimestamp);
+          const text = `TR-${videoId}-${frameSequence.join(',')}`;
+          jsonData.answerSets[0].answers.push({ text });
+        }
+      });
+      return jsonData;
+    }
+
+    if (appMode === "textual-kis") {
+      // KIS mode: Convert frame ID to time(ms) using FPS
+      if (selectedItems.size === 0) {
+        return null;
+      }
+
+      const videoFpsCache = {};
+      for (const videoId of selectedItems) {
+        const parts = videoId.split('_');
+        if (parts.length >= 3) {
+          const batch = parts[0];
+          const videoNum = parts[1];
+          const frameId = parseInt(parts[2]);
+          const mediaItemName = `${batch}_${videoNum}`;
+
+          if (!videoFpsCache[mediaItemName]) {
+            try {
+              const batchConfig = getBatchConfig(videoId);
+              const mediaInfoPath = `/${batchConfig.mediaInfoDir}/${mediaItemName}.json`;
+              const response = await fetch(mediaInfoPath);
+              if (response.ok) {
+                const videoInfo = await response.json();
+                videoFpsCache[mediaItemName] = videoInfo.fps || 25;
+              } else {
+                videoFpsCache[mediaItemName] = 25;
+              }
+            } catch (error) {
+              console.error(`Error loading FPS for ${mediaItemName}:`, error);
+              videoFpsCache[mediaItemName] = 25;
+            }
+          }
+
+          const fps = videoFpsCache[mediaItemName];
+          const timeMs = Math.round((frameId / fps) * 1000);
+
+          jsonData.answerSets[0].answers.push({
+            mediaItemName: mediaItemName,
+            start: timeMs,
+            end: timeMs
+          });
+        }
+      }
+      return jsonData;
+
+    } else if (appMode === "qa") {
+      // QA mode: Convert frame ID to time(ms) using FPS
+      if (selectedItems.size === 0) {
+        return null;
+      }
+
+      const videoFpsCache = {};
+      for (const videoId of selectedItems) {
+        const parts = videoId.split('_');
+        if (parts.length >= 3) {
+          const batch = parts[0];
+          const videoNum = parts[1];
+          const frameId = parseInt(parts[2]);
+          const answer = frameAnswers[videoId] || "";
+          const mediaItemName = `${batch}_${videoNum}`;
+
+          if (!videoFpsCache[mediaItemName]) {
+            try {
+              const batchConfig = getBatchConfig(videoId);
+              const mediaInfoPath = `/${batchConfig.mediaInfoDir}/${mediaItemName}.json`;
+              const response = await fetch(mediaInfoPath);
+              if (response.ok) {
+                const videoInfo = await response.json();
+                videoFpsCache[mediaItemName] = videoInfo.fps || 25;
+              } else {
+                videoFpsCache[mediaItemName] = 25;
+              }
+            } catch (error) {
+              console.error(`Error loading FPS for ${mediaItemName}:`, error);
+              videoFpsCache[mediaItemName] = 25;
+            }
+          }
+
+          const fps = videoFpsCache[mediaItemName];
+          const timeMs = Math.round((frameId / fps) * 1000);
+
+          const text = `QA-${answer}-${mediaItemName}-${timeMs}`;
+          jsonData.answerSets[0].answers.push({ text });
+        }
+      }
+      return jsonData;
+    }
+
+    return null;
+  };
+
+  // Generate preview items for review modal
+  const generateSubmissionPreview = async () => {
+    const items = [];
+    const mode = (searchModeType === "temporal" && temporalSearch.isActive) ? "trake" : appMode;
+
+    // Handle temporal search (TRAKE format)
+    if (searchModeType === "temporal" && temporalSearch.isActive) {
+      temporalSearch.results.forEach(result => {
+        if (result.videoTimeline && selectedItems.has(result.videoId)) {
+          const videoId = result.videoTimeline.video_id;
+          const frameSequence = result.videoTimeline.image.map(extractFrameTimestamp);
+          items.push({
+            videoId: result.videoId,
+            videoName: videoId,
+            frameIds: frameSequence,
+            displayText: `TR-${videoId}-${frameSequence.join(',')}`,
+            canEditAnswer: false
+          });
+        }
+      });
+      return { items, mode };
+    }
+
+    // Handle KIS and QA modes
+    const videoFpsCache = {};
+    for (const videoId of selectedItems) {
+      const parts = videoId.split('_');
+      if (parts.length >= 3) {
+        const batch = parts[0];
+        const videoNum = parts[1];
+        const frameId = parseInt(parts[2]);
+        const mediaItemName = `${batch}_${videoNum}`;
+
+        // Get FPS
+        if (!videoFpsCache[mediaItemName]) {
+          try {
+            const batchConfig = getBatchConfig(videoId);
+            const mediaInfoPath = `/${batchConfig.mediaInfoDir}/${mediaItemName}.json`;
+            const response = await fetch(mediaInfoPath);
+            if (response.ok) {
+              const videoInfo = await response.json();
+              videoFpsCache[mediaItemName] = videoInfo.fps || 25;
+            } else {
+              videoFpsCache[mediaItemName] = 25;
+            }
+          } catch (error) {
+            videoFpsCache[mediaItemName] = 25;
+          }
+        }
+
+        const fps = videoFpsCache[mediaItemName];
+        const timeMs = Math.round((frameId / fps) * 1000);
+
+        if (mode === "qa") {
+          const answer = frameAnswers[videoId] || "";
+          items.push({
+            videoId,
+            videoName: mediaItemName,
+            frameId,
+            timeMs,
+            answer,
+            displayText: `QA-${answer}-${mediaItemName}-${timeMs}`,
+            canEditAnswer: true
+          });
+        } else if (mode === "textual-kis") {
+          items.push({
+            videoId,
+            videoName: mediaItemName,
+            frameId,
+            timeMs,
+            displayText: `${mediaItemName}: ${timeMs}ms`,
+            canEditAnswer: false
+          });
+        }
+      }
+    }
+
+    return { items, mode };
+  };
+
+  // Open review modal
+  const handleDRESSubmit = async () => {
+    // Validate
+    if (!dresConfig.isAuthenticated) {
+      alert("Please login to DRES first!");
+      return;
+    }
+
+    if (!dresEvaluation.selectedEvaluationId) {
+      alert("Please select an evaluation!");
+      return;
+    }
+
+    if (selectedItems.size === 0 && !(searchModeType === "temporal" && temporalSearch.isActive)) {
+      alert("Please select at least one item to submit!");
+      return;
+    }
+
+    // Generate preview items
+    const { items, mode } = await generateSubmissionPreview();
+
+    if (items.length === 0) {
+      alert("No data to submit!");
+      return;
+    }
+
+    // Open review modal
+    setDresReview({
+      isOpen: true,
+      items,
+      mode,
+      editedAnswers: {}
+    });
+  };
+
+  // Confirm and submit from review modal
+  const confirmDRESSubmission = async () => {
+    // Generate final submission JSON with edited answers
+    const submissionData = await generateDRESSubmissionJSON();
+
+    if (!submissionData || submissionData.answerSets[0].answers.length === 0) {
+      alert("No data to submit!");
+      return;
+    }
+
+    // Apply edits for all modes
+    if (Object.keys(dresReview.editedAnswers).length > 0) {
+      submissionData.answerSets[0].answers = submissionData.answerSets[0].answers.map((answer, answerIndex) => {
+        const item = dresReview.items[answerIndex];
+        if (!item) return answer;
+
+        // Get edited values or use originals
+        const editedVideoName = dresReview.editedAnswers[`${item.videoId}_videoName`] || item.videoName;
+        const editedTimeMs = dresReview.editedAnswers[`${item.videoId}_timeMs`] || item.timeMs;
+        const editedAnswer = dresReview.editedAnswers[item.videoId];
+
+        if (dresReview.mode === "qa") {
+          // QA mode: QA-answer-video-time(ms)
+          const finalAnswer = editedAnswer !== undefined ? editedAnswer : item.answer;
+          return {
+            text: `QA-${finalAnswer}-${editedVideoName}-${editedTimeMs}`
+          };
+        } else if (dresReview.mode === "textual-kis") {
+          // KIS mode: Update mediaItemName with start/end time(ms)
+          return {
+            mediaItemName: editedVideoName,
+            start: parseInt(editedTimeMs),
+            end: parseInt(editedTimeMs)
+          };
+        } else if (dresReview.mode === "trake") {
+          // TRAKE mode: TR-video-frameIDs (video name and frames can be edited)
+          const editedFrames = dresReview.editedAnswers[`${item.videoId}_frames`] || item.frameIds;
+          const frameSequence = editedFrames.join(',');
+          return {
+            text: `TR-${editedVideoName}-${frameSequence}`
+          };
+        }
+
+        return answer;
+      });
+    }
+
+    // Close modal
+    setDresReview({ isOpen: false, items: [], mode: "", editedAnswers: {} });
+
+    // Submit to DRES
+    const result = await dresSubmitResults(submissionData);
+
+    if (result.success) {
+      alert(`✅ Successfully submitted ${submissionData.answerSets[0].answers.length} results to DRES!\nEvaluation: ${dresEvaluation.evaluationName}`);
+    } else {
+      alert(`❌ Submission failed: ${result.error}`);
+    }
+  };
+
   const downloadCSV = () => {
     // Handle temporal search results
     if (searchModeType === "temporal" && temporalSearch.isActive && temporalSearch.results.length > 0) {
@@ -1082,6 +1538,184 @@ function App() {
               <span className="status-dot"></span>
               {isConnected ? 'Connected' : 'Not Connected'}
             </div>
+          </div>
+
+          {/* DRES Submission Section */}
+          <div className="dres-section" style={{
+            marginTop: '15px',
+            padding: '12px',
+            background: 'rgba(0, 123, 255, 0.05)',
+            borderRadius: '8px',
+            border: '1px solid rgba(0, 123, 255, 0.2)'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginBottom: '10px',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              color: '#007bff'
+            }}>
+              🏆 DRES Submission
+            </div>
+
+            {!dresConfig.isAuthenticated ? (
+              <div>
+                <input
+                  type="text"
+                  placeholder="Username"
+                  value={dresConfig.username}
+                  onChange={(e) => setDresConfig(prev => ({ ...prev, username: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    marginBottom: '8px',
+                    border: '1px solid #444',
+                    borderRadius: '4px',
+                    background: '#1a1a1a',
+                    color: '#fff',
+                    fontSize: '13px'
+                  }}
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={dresConfig.password}
+                  onChange={(e) => setDresConfig(prev => ({ ...prev, password: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && dresConfig.username && dresConfig.password) {
+                      dresLogin(dresConfig.username, dresConfig.password);
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    marginBottom: '8px',
+                    border: '1px solid #444',
+                    borderRadius: '4px',
+                    background: '#1a1a1a',
+                    color: '#fff',
+                    fontSize: '13px'
+                  }}
+                />
+                <button
+                  onClick={() => dresLogin(dresConfig.username, dresConfig.password)}
+                  disabled={!dresConfig.username || !dresConfig.password}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    background: '#007bff',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    opacity: (!dresConfig.username || !dresConfig.password) ? 0.5 : 1
+                  }}
+                >
+                  🔐 Login to DRES
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '8px'
+                }}>
+                  <div style={{ fontSize: '12px', color: '#4CAF50' }}>
+                    🟢 Connected
+                  </div>
+                  <button
+                    onClick={dresLogout}
+                    style={{
+                      padding: '4px 8px',
+                      background: '#dc3545',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '11px'
+                    }}
+                  >
+                    Logout
+                  </button>
+                </div>
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '8px' }}>
+                  User: {dresConfig.username}
+                </div>
+                <div style={{ fontSize: '10px', color: '#666', wordBreak: 'break-all' }}>
+                  Session: {dresConfig.sessionId.substring(0, 20)}...
+                </div>
+
+                {/* Evaluation Selection */}
+                {dresEvaluation.evaluations.length > 0 && (
+                  <div style={{ marginTop: '10px' }}>
+                    <label style={{ fontSize: '12px', color: '#ccc', display: 'block', marginBottom: '4px' }}>
+                      Evaluation:
+                    </label>
+                    <select
+                      value={dresEvaluation.selectedEvaluationId}
+                      onChange={(e) => {
+                        const selected = dresEvaluation.evaluations.find(ev => ev.id === e.target.value);
+                        setDresEvaluation(prev => ({
+                          ...prev,
+                          selectedEvaluationId: e.target.value,
+                          evaluationName: selected?.name || "",
+                          status: selected?.status || ""
+                        }));
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px',
+                        border: '1px solid #444',
+                        borderRadius: '4px',
+                        background: '#1a1a1a',
+                        color: '#fff',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {dresEvaluation.evaluations.map(ev => (
+                        <option key={ev.id} value={ev.id}>
+                          {ev.name} ({ev.status})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => dresGetEvaluations(dresConfig.sessionId)}
+                      style={{
+                        width: '100%',
+                        marginTop: '6px',
+                        padding: '4px',
+                        background: '#6c757d',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                    >
+                      🔄 Refresh Evaluations
+                    </button>
+                  </div>
+                )}
+
+                {/* Last Submission Info */}
+                {dresSubmission.lastSubmission && (
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '6px',
+                    background: 'rgba(76, 175, 80, 0.1)',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    color: '#4CAF50'
+                  }}>
+                    ✅ Last: {dresSubmission.lastSubmission.itemCount} items ({dresSubmission.lastSubmission.mode})
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <label className="topk-label" >
@@ -1496,6 +2130,23 @@ function App() {
                   >
                     📦 Download JSON
                   </button>
+                  {dresConfig.isAuthenticated && dresEvaluation.selectedEvaluationId && (
+                    <button
+                      className="csv-btn download"
+                      onClick={handleDRESSubmit}
+                      disabled={
+                        dresSubmission.isSubmitting ||
+                        ((searchModeType === "temporal" && temporalSearch.isActive) ? temporalSearch.results.length === 0 :
+                        selectedItems.size === 0)
+                      }
+                      style={{
+                        background: dresSubmission.isSubmitting ? '#6c757d' : '#28a745',
+                        opacity: dresSubmission.isSubmitting ? 0.7 : 1
+                      }}
+                    >
+                      {dresSubmission.isSubmitting ? '⏳ Submitting...' : '🏆 Submit to DRES'}
+                    </button>
+                  )}
                 </div>
               </div>
               {searchModeType === "temporal" && temporalSearch.isActive ? (
@@ -2314,6 +2965,231 @@ function App() {
           </button>
         </div>
       </div>
+
+      {/* DRES Submission Review Modal */}
+      {dresReview.isOpen && (
+        <div className="modal-overlay" onClick={() => setDresReview(prev => ({ ...prev, isOpen: false }))}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Review Submission to DRES</h3>
+              <button
+                className="modal-close-btn"
+                onClick={() => setDresReview(prev => ({ ...prev, isOpen: false }))}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="submission-info">
+                <div className="info-item">
+                  <span className="info-label">Mode:</span>
+                  <span className="info-value">{dresReview.mode.toUpperCase()}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">Items:</span>
+                  <span className="info-value">{dresReview.items.length}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">Evaluation:</span>
+                  <span className="info-value">{dresEvaluation.evaluationName}</span>
+                </div>
+              </div>
+
+              <div className="review-items-container">
+                {dresReview.items.map((item, index) => (
+                  <div key={item.videoId || index} className="review-item">
+                    <div className="review-item-header">
+                      <span className="review-item-number">#{index + 1}</span>
+                    </div>
+
+                    <div className="review-item-fields">
+                      <div className="review-field">
+                        <label>Video Name:</label>
+                        <input
+                          type="text"
+                          className="field-edit-input"
+                          defaultValue={item.videoName}
+                          onChange={(e) => {
+                            setDresReview(prev => ({
+                              ...prev,
+                              editedAnswers: {
+                                ...prev.editedAnswers,
+                                [`${item.videoId}_videoName`]: e.target.value
+                              }
+                            }));
+                          }}
+                        />
+                      </div>
+
+                      {item.timeMs !== undefined && (
+                        <div className="review-field">
+                          <label>Timestamp (ms):</label>
+                          <input
+                            type="number"
+                            className="field-edit-input"
+                            defaultValue={item.timeMs}
+                            onChange={(e) => {
+                              setDresReview(prev => ({
+                                ...prev,
+                                editedAnswers: {
+                                  ...prev.editedAnswers,
+                                  [`${item.videoId}_timeMs`]: e.target.value
+                                }
+                              }));
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {dresReview.mode === "qa" && (
+                        <div className="review-field">
+                          <label>Answer:</label>
+                          <input
+                            type="text"
+                            className="field-edit-input"
+                            placeholder="Enter answer..."
+                            defaultValue={item.answer}
+                            onChange={(e) => {
+                              setDresReview(prev => ({
+                                ...prev,
+                                editedAnswers: {
+                                  ...prev.editedAnswers,
+                                  [item.videoId]: e.target.value
+                                }
+                              }));
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {item.frameIds && dresReview.mode === "trake" && (
+                        <div className="review-field">
+                          <label>Frame Sequence ({(dresReview.editedAnswers[`${item.videoId}_frames`] || item.frameIds).length} frames):</label>
+                          <div className="frame-sequence-editor">
+                            {(dresReview.editedAnswers[`${item.videoId}_frames`] || item.frameIds).map((frameId, frameIndex) => (
+                              <div key={frameIndex} className="frame-chip">
+                                <input
+                                  type="text"
+                                  className="frame-chip-input"
+                                  value={frameId}
+                                  onChange={(e) => {
+                                    const currentFrames = dresReview.editedAnswers[`${item.videoId}_frames`] || [...item.frameIds];
+                                    currentFrames[frameIndex] = e.target.value;
+                                    setDresReview(prev => ({
+                                      ...prev,
+                                      editedAnswers: {
+                                        ...prev.editedAnswers,
+                                        [`${item.videoId}_frames`]: currentFrames
+                                      }
+                                    }));
+                                  }}
+                                />
+                                <button
+                                  className="frame-chip-btn move-up"
+                                  onClick={() => {
+                                    if (frameIndex === 0) return;
+                                    const currentFrames = dresReview.editedAnswers[`${item.videoId}_frames`] || [...item.frameIds];
+                                    [currentFrames[frameIndex - 1], currentFrames[frameIndex]] = [currentFrames[frameIndex], currentFrames[frameIndex - 1]];
+                                    setDresReview(prev => ({
+                                      ...prev,
+                                      editedAnswers: {
+                                        ...prev.editedAnswers,
+                                        [`${item.videoId}_frames`]: currentFrames
+                                      }
+                                    }));
+                                  }}
+                                  disabled={frameIndex === 0}
+                                  title="Move up"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  className="frame-chip-btn move-down"
+                                  onClick={() => {
+                                    const currentFrames = dresReview.editedAnswers[`${item.videoId}_frames`] || [...item.frameIds];
+                                    if (frameIndex === currentFrames.length - 1) return;
+                                    [currentFrames[frameIndex], currentFrames[frameIndex + 1]] = [currentFrames[frameIndex + 1], currentFrames[frameIndex]];
+                                    setDresReview(prev => ({
+                                      ...prev,
+                                      editedAnswers: {
+                                        ...prev.editedAnswers,
+                                        [`${item.videoId}_frames`]: currentFrames
+                                      }
+                                    }));
+                                  }}
+                                  disabled={frameIndex === (dresReview.editedAnswers[`${item.videoId}_frames`] || item.frameIds).length - 1}
+                                  title="Move down"
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  className="frame-chip-btn remove"
+                                  onClick={() => {
+                                    const currentFrames = dresReview.editedAnswers[`${item.videoId}_frames`] || [...item.frameIds];
+                                    currentFrames.splice(frameIndex, 1);
+                                    setDresReview(prev => ({
+                                      ...prev,
+                                      editedAnswers: {
+                                        ...prev.editedAnswers,
+                                        [`${item.videoId}_frames`]: currentFrames
+                                      }
+                                    }));
+                                  }}
+                                  title="Remove frame"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              className="add-frame-btn"
+                              onClick={() => {
+                                const currentFrames = dresReview.editedAnswers[`${item.videoId}_frames`] || [...item.frameIds];
+                                const lastFrame = currentFrames[currentFrames.length - 1];
+                                const newFrame = lastFrame ? String(parseInt(lastFrame) + 100) : "1000";
+                                currentFrames.push(newFrame);
+                                setDresReview(prev => ({
+                                  ...prev,
+                                  editedAnswers: {
+                                    ...prev.editedAnswers,
+                                    [`${item.videoId}_frames`]: currentFrames
+                                  }
+                                }));
+                              }}
+                            >
+                              + Add Frame
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button
+                className="modal-btn cancel"
+                onClick={() => setDresReview(prev => ({ ...prev, isOpen: false }))}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn confirm"
+                onClick={confirmDRESSubmission}
+                disabled={dresReview.mode === "qa" && dresReview.items.some(item =>
+                  item.canEditAnswer &&
+                  !(dresReview.editedAnswers[item.videoId] || item.answer)?.trim()
+                )}
+              >
+                Confirm & Submit to DRES
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
