@@ -84,8 +84,8 @@ function App() {
   // DRES Authentication State
   const [dresConfig, setDresConfig] = useState({
     baseUrl: "https://eventretrieval.oj.io.vn",
-    username: "",
-    password: "",
+    username: "team043",
+    password: "qUB5bJsBL9",
     sessionId: "",
     isAuthenticated: false
   });

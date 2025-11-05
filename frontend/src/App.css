@@ -2764,36 +2764,43 @@ body {
 }
 
 .review-field label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #555;
+  font-size: 13px;
+  font-weight: 700;
+  color: #333;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
 }
 
 .field-edit-input {
   width: 100%;
-  padding: 10px 12px;
-  border: 2px solid #d0d0d0;
-  border-radius: 6px;
-  font-size: 14px;
-  font-family: inherit;
+  padding: 12px 14px;
+  border: 2px solid #b0b0b0;
+  border-radius: 8px;
+  font-size: 16px;
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
   transition: all 0.2s;
-  background: white;
+  background: #ffffff;
+  color: #1a1a1a;
 }
 
 .field-edit-input:focus {
   outline: none;
   border-color: #007bff;
-  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+  box-shadow: 0 0 0 4px rgba(0, 123, 255, 0.15);
+  background: #f8fbff;
 }
 
 .field-edit-input::placeholder {
-  color: #aaa;
+  color: #999;
+  font-weight: 400;
 }
 
 .field-edit-input[type="number"] {
   font-family: 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
 
 .review-item-display {
