@@ -211,6 +211,35 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
         print(f"Subtitle retrieval time: {time.time() - t3} seconds")
         return subtitle_nodes
     
+    elif mode == "clip+caption":
+        clip_vector_query = get_vector_query(query, mode="clip")
+        text_vector_query = get_vector_query(query, mode=caption_mode)
+
+        caption_engine = SearchEngines["BGECaption"] if caption_mode == "bge" else SearchEngines["GTECaption"]
+        print("Using parallel retrieval")
+        start = time.time()
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            future_clip = executor.submit(retrieve_with_vector,SearchEngines['ClipSearch'], clip_vector_query, topK, frame_ids)
+            future_caption = executor.submit(retrieve_with_vector,caption_engine, text_vector_query, topK, frame_ids)
+
+
+            clip_nodes = future_clip.result()
+
+        print(f"Retrieval time: {time.time() - start} seconds")      
+        combined_scores = defaultdict(float)
+        weights = (0.45, 0.45,)
+        for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1])):
+            for node in nodes:
+                combined_scores[node["id"]] += node["score"] * w
+
+        top_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:topK]
+        top_results = [{"id": video_id, "score": score} for video_id, score in top_results]
+
+        if use_rerank:
+            top_results = rerank(query, top_results, (topK // 2), caption_mode)
+            
+        return top_results
+
     else: 
         clip_vector_query = get_vector_query(query, mode="clip")
         text_vector_query = get_vector_query(query, mode=caption_mode)

@@ -1828,11 +1828,12 @@ function App() {
                   <option value="clip">CLIP Only</option>
                   <option value="caption">Caption Only</option>
                   <option value="subtitles">Subtitles Only</option>
+                  <option value="clip+caption">CLIP + Caption</option>
                   <option value="hybrid"> Hybrid (CLIP + Caption + Subtitles)</option>
                 </select>
               </div>
 
-              {(searchMode === "hybrid" || searchMode === "caption" || searchMode === "subtitles") && (
+              {(searchMode === "hybrid" || searchMode === "caption" || searchMode === "subtitles" || searchMode === "clip+caption") && (
                 <div className="caption-mode-section">
                   <label className="caption-mode-label">Caption Model:</label>
                   <select
