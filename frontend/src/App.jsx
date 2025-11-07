@@ -1637,18 +1637,89 @@ function App() {
     }
   };
 
-  const handleVideoSelectionForViewing = (videoId) => {
-    setSelectedVideoForViewing(videoId);
-    if (videoId) {
-      loadVideoKeyframes(videoId);
-      // Also activate right-side video browse
-      setBrowsedVideoId(videoId);
-      setVideoBrowseMode(true);
-      setBrowseCurrentPage(0);
-    } else {
+  const handleVideoSelectionForViewing = async (input) => {
+    setSelectedVideoForViewing(input);
+
+    if (!input) {
       setVideoKeyframes([]);
       setVideoBrowseMode(false);
       setBrowsedVideoId("");
+      return;
+    }
+
+    // Check if input is a batch prefix (L23, L24, L26)
+    if (input === 'L23' || input === 'L24' || input === 'L26') {
+      setLoadingVideoKeyframes(true);
+      try {
+        // Fetch all available video IDs from keyframes index
+        const batchConfig = getBatchConfig(input + '_V001'); // Use any video from batch to get config
+        const response = await fetch(`/${batchConfig.mediaInfoDir}/keyframes_index.json`);
+
+        if (!response.ok) {
+          throw new Error('Keyframes index not found');
+        }
+
+        const keyframesIndex = await response.json();
+
+        // Extract all video IDs that start with the batch prefix
+        const batchVideos = Object.keys(keyframesIndex).filter(videoId =>
+          videoId.startsWith(`${input}_`)
+        ).sort();
+
+        console.log(`Found ${batchVideos.length} videos in ${input} batch:`, batchVideos);
+
+        // Load keyframes from ALL videos in the batch
+        const allKeyframes = [];
+        for (const videoId of batchVideos) {
+          const imagePaths = keyframesIndex[videoId];
+          if (imagePaths && imagePaths.length > 0) {
+            const mappedFrames = imagePaths.map(imagePath => {
+              const filename = imagePath.split('/').pop();
+              const frameMatch = filename.match(/_(\d+)\.jpg$/);
+              const frameNum = frameMatch ? parseInt(frameMatch[1]) : 0;
+
+              return {
+                videoId: filename.replace('.jpg', ''),
+                image: imagePath,
+                caption: `Frame ${frameNum} from ${videoId}`,
+                score: 1.0,
+                timestamp: frameNum
+              };
+            });
+
+            allKeyframes.push(...mappedFrames);
+          }
+        }
+
+        // Sort all keyframes by video ID first, then by timestamp
+        allKeyframes.sort((a, b) => {
+          const videoA = a.videoId.substring(0, a.videoId.lastIndexOf('_'));
+          const videoB = b.videoId.substring(0, b.videoId.lastIndexOf('_'));
+          if (videoA !== videoB) {
+            return videoA.localeCompare(videoB);
+          }
+          return a.timestamp - b.timestamp;
+        });
+
+        setVideoKeyframes(allKeyframes);
+        console.log(`Loaded ${allKeyframes.length} total keyframes from ${input} batch (${batchVideos.length} videos)`);
+
+        // Activate right-side video browse
+        setBrowsedVideoId(input);
+        setVideoBrowseMode(true);
+        setBrowseCurrentPage(0);
+      } catch (error) {
+        console.error(`Error loading ${input} batch keyframes:`, error);
+        setVideoKeyframes([]);
+      } finally {
+        setLoadingVideoKeyframes(false);
+      }
+    } else {
+      // Regular single video loading
+      loadVideoKeyframes(input);
+      setBrowsedVideoId(input);
+      setVideoBrowseMode(true);
+      setBrowseCurrentPage(0);
     }
   };
 
@@ -2384,7 +2455,7 @@ function App() {
               <input
                 type="text"
                 className="video-selection-input"
-                placeholder="Enter video ID (e.g., L01_V001)"
+                placeholder="Enter video ID (e.g., L01_V001) or batch (L23, L24, L26)"
                 value={selectedVideoForViewing}
                 onChange={(e) => setSelectedVideoForViewing(e.target.value)}
                 onKeyDown={(e) => {
@@ -2399,6 +2470,81 @@ function App() {
                 disabled={!selectedVideoForViewing || loadingVideoKeyframes}
               >
                 {loadingVideoKeyframes ? "Loading..." : "🔍 Load Keyframes"}
+              </button>
+            </div>
+
+            {/* Batch Filter Buttons */}
+            <div style={{
+              display: 'flex',
+              gap: '8px',
+              marginTop: '12px',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{ fontSize: '12px', color: '#ccc', width: '100%', marginBottom: '4px' }}>
+                Quick Load Batch:
+              </div>
+              <button
+                onClick={() => handleVideoSelectionForViewing('L23')}
+                disabled={loadingVideoKeyframes}
+                style={{
+                  flex: '1',
+                  padding: '8px 12px',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: loadingVideoKeyframes ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  opacity: loadingVideoKeyframes ? 0.6 : 1,
+                  transition: 'transform 0.2s, opacity 0.2s'
+                }}
+                onMouseEnter={(e) => !loadingVideoKeyframes && (e.target.style.transform = 'scale(1.05)')}
+                onMouseLeave={(e) => (e.target.style.transform = 'scale(1)')}
+              >
+                🚴 L23 - Đua xe đạp
+              </button>
+              <button
+                onClick={() => handleVideoSelectionForViewing('L24')}
+                disabled={loadingVideoKeyframes}
+                style={{
+                  flex: '1',
+                  padding: '8px 12px',
+                  background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: loadingVideoKeyframes ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  opacity: loadingVideoKeyframes ? 0.6 : 1,
+                  transition: 'transform 0.2s, opacity 0.2s'
+                }}
+                onMouseEnter={(e) => !loadingVideoKeyframes && (e.target.style.transform = 'scale(1.05)')}
+                onMouseLeave={(e) => (e.target.style.transform = 'scale(1)')}
+              >
+                🦁 L24 - Múa lân
+              </button>
+              <button
+                onClick={() => handleVideoSelectionForViewing('L26')}
+                disabled={loadingVideoKeyframes}
+                style={{
+                  flex: '1',
+                  padding: '8px 12px',
+                  background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: loadingVideoKeyframes ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  opacity: loadingVideoKeyframes ? 0.6 : 1,
+                  transition: 'transform 0.2s, opacity 0.2s'
+                }}
+                onMouseEnter={(e) => !loadingVideoKeyframes && (e.target.style.transform = 'scale(1.05)')}
+                onMouseLeave={(e) => (e.target.style.transform = 'scale(1)')}
+              >
+                🍳 L26 - Nấu ăn
               </button>
             </div>
 
@@ -3377,20 +3523,33 @@ function App() {
             </div>
           ) : searchType === "text" ? (
             // Normal text search
-            <input
-              type="text"
+            <textarea
               placeholder={
-                appMode === "textual-kis" ? "Enter search query for KIS..." :
-                appMode === "qa" ? "Enter question or topic..." :
-                "Enter search query for video selection..."
+                appMode === "textual-kis" ? "Enter search query for KIS...\n(Supports multi-line text, press Ctrl+Enter to search)" :
+                appMode === "qa" ? "Enter question or topic...\n(Supports multi-line text, press Ctrl+Enter to search)" :
+                "Enter search query for video selection...\n(Supports multi-line text, press Ctrl+Enter to search)"
               }
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (e.key === "Enter" && e.ctrlKey) {
+                  e.preventDefault();
+                  search();
+                } else if (e.key === "Enter" && !e.shiftKey && query.trim() && query.split('\n').length === 1) {
+                  // Single line behavior: Enter submits (unless Shift is held)
                   e.preventDefault();
                   search();
                 }
+              }}
+              rows={3}
+              style={{
+                minHeight: '80px',
+                maxHeight: '200px',
+                resize: 'vertical',
+                padding: '12px',
+                fontSize: '14px',
+                lineHeight: '1.5',
+                fontFamily: 'inherit'
               }}
             />
           ) : (
