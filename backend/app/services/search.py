@@ -166,6 +166,7 @@ def rerank(query, candidates, topK, caption_mode):
 
 def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: str = "bge",
                    alpha: float = 0.5, frame_ids: Optional[List] = None, use_rerank: bool = False):
+    print(f"Retrieval mode: {mode}, caption model: {caption_mode}, use_rerank: {use_rerank}")
     if mode == "clip":
         clip_vector_query = get_vector_query(query, mode="clip")
 
@@ -237,7 +238,7 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
 
         if use_rerank:
             top_results = rerank(query, top_results, (topK // 2), caption_mode)
-            
+
         return top_results
 
     else: 
