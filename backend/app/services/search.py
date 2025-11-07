@@ -223,12 +223,12 @@ def retrieve_frame(query: str, topK: int, mode: str = "hybrid", caption_mode: st
             future_clip = executor.submit(retrieve_with_vector,SearchEngines['ClipSearch'], clip_vector_query, topK, frame_ids)
             future_caption = executor.submit(retrieve_with_vector,caption_engine, text_vector_query, topK, frame_ids)
 
-
+            caption_nodes = future_caption.result()
             clip_nodes = future_clip.result()
 
         print(f"Retrieval time: {time.time() - start} seconds")      
         combined_scores = defaultdict(float)
-        weights = (0.45, 0.45,)
+        weights = (0.5, 0.5)
         for nodes, w in ((caption_nodes, weights[0]), (clip_nodes, weights[1])):
             for node in nodes:
                 combined_scores[node["id"]] += node["score"] * w

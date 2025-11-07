@@ -1847,7 +1847,7 @@ function App() {
                 </div>
               )}
 
-              {searchMode === "hybrid" && (
+              {(searchMode === "hybrid" || searchMode === "clip+caption") && (
                 <div className="alpha-section">
                   <label className="alpha-label">
                     Text/Visual Balance: {(alpha * 100).toFixed(0)}% text
