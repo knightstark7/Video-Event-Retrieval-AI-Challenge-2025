@@ -6,6 +6,7 @@ import open_clip
 from pydantic import PrivateAttr
 from PIL import Image
 from typing import List
+import os
 
 class Embedding(BaseEmbedding):
     _model = PrivateAttr()
@@ -74,32 +75,43 @@ class Embedding(BaseEmbedding):
         return self._get_image_embedding(image)
     
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+SAVE_DIR = "/kaggle/working/models"
+os.makedirs(SAVE_DIR, exist_ok=True)
 
+def exists(name):
+    return os.path.exists(f"{SAVE_DIR}/{name}")
+
+print("Downloading CLIP...")
 CLIP_model, _, CLIP_preprocess = open_clip.create_model_and_transforms(
-    model_name="ViT-H-14-quickgelu", 
-    pretrained="dfn5b",
-    device=DEVICE
-)
+        model_name="ViT-H-14-quickgelu",
+        pretrained="dfn5b",
+        device=DEVICE
+    )
 tokenizer = open_clip.get_tokenizer("ViT-H-14-quickgelu")
 CLIP_model = CLIP_model.eval()
-CLIP_embedder = Embedding(
-    model=CLIP_model, model_name="ViT-H-14-quickgelu", device=DEVICE,
-    preprocess=CLIP_preprocess, tokenizer=tokenizer, model_type="clip"
-)
+CLIP_embedder = Embedding(CLIP_model, "ViT-H-14-quickgelu", DEVICE, CLIP_preprocess, tokenizer, "clip")
 
-BGE_model = SentenceTransformer("AITeamVN/Vietnamese_Embedding_v2", device=DEVICE)
-BGE_embedder = Embedding(
-    model=BGE_model, model_name="AITeamVN/Vietnamese_Embedding_v2",
-    device=DEVICE, model_type="caption"
-)
+# ---- BGE ----
+if exists("bge"):
+    print("Loading BGE from local cache...")
+    BGE_model = SentenceTransformer(f"{SAVE_DIR}/bge", device=DEVICE)
+else:
+    print("Downloading BGE...")
+    BGE_model = SentenceTransformer("AITeamVN/Vietnamese_Embedding_v2", device=DEVICE)
+    BGE_model.save(f"{SAVE_DIR}/bge")
 
-GTE_model = SentenceTransformer("dangvantuan/vietnamese-document-embedding", device=DEVICE, trust_remote_code=True)
-GTE_embedder = Embedding(
-    model=GTE_model, model_name="dangvantuan/vietnamese-document-embedding",
-    device=DEVICE, model_type="caption"
-)
+BGE_embedder = Embedding(BGE_model, "AITeamVN/Vietnamese_Embedding_v2", DEVICE, model_type="caption")
 
-Reranker = AutoModel.from_pretrained(
-    'jinaai/jina-reranker-v3', 
-    trust_remote_code=True,
-).half().to(DEVICE).eval()
+# ---- GTE ----
+if exists("gte"):
+    print("Loading GTE from local cache...")
+    GTE_model = SentenceTransformer(f"{SAVE_DIR}/gte", device=DEVICE, trust_remote_code=True)
+else:
+    print("Downloading GTE...")
+    GTE_model = SentenceTransformer("dangvantuan/vietnamese-document-embedding", device=DEVICE, trust_remote_code=True)
+    GTE_model.save(f"{SAVE_DIR}/gte")
+
+GTE_embedder = Embedding(GTE_model, "dangvantuan/vietnamese-document-embedding", DEVICE, model_type="caption")
+
+print("Downloading Reranker...")
+Reranker = AutoModel.from_pretrained("jinaai/jina-reranker-v3", trust_remote_code=True).half().to(DEVICE).eval()
