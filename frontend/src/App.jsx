@@ -63,7 +63,8 @@ function App() {
   const [selectedVideoForViewing, setSelectedVideoForViewing] = useState(""); // Video ID to view keyframes
   const [videoKeyframes, setVideoKeyframes] = useState([]); // Keyframes from selected video
   const [loadingVideoKeyframes, setLoadingVideoKeyframes] = useState(false);
-  
+  const [selectedBrowseFrames, setSelectedBrowseFrames] = useState(new Set()); // Selected frames from browse mode
+
   // Video Browse State (right side display)
   const [videoBrowseMode, setVideoBrowseMode] = useState(false);
   const [browsedVideoId, setBrowsedVideoId] = useState("");
@@ -113,6 +114,26 @@ function App() {
     editedAnswers: {} // videoId -> edited answer
   });
 
+  // DRES Manual Submission State
+  const [dresManualSubmit, setDresManualSubmit] = useState({
+    isOpen: false,
+    mode: "textual-kis", // "textual-kis", "qa", "trake"
+    rawInput: "" // User input text area
+  });
+
+  // DRES Submission History
+  const [submissionHistory, setSubmissionHistory] = useState(() => {
+    // Load from localStorage on init
+    const saved = localStorage.getItem('dres_submission_history');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+
+  // Save submission history to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('dres_submission_history', JSON.stringify(submissionHistory));
+  }, [submissionHistory]);
+
   // Constants
   const pageSize = 8;
 
@@ -142,6 +163,69 @@ function App() {
         isKPrefixed: false
       };
     }
+  };
+
+  // FPS cache for time calculation
+  const [fpsCache, setFpsCache] = useState({});
+
+  // Calculate time in milliseconds from frame ID
+  const calculateTimeMs = async (frameId) => {
+    const parts = frameId.split('_');
+    if (parts.length < 3) return null;
+
+    const batch = parts[0];
+    const videoNum = parts[1];
+    const frameNumber = parseInt(parts[2]);
+    const mediaItemName = `${batch}_${videoNum}`;
+
+    // Check cache first
+    if (fpsCache[mediaItemName]) {
+      const fps = fpsCache[mediaItemName];
+      return Math.round((frameNumber / fps) * 1000);
+    }
+
+    // Fetch FPS from media-info
+    try {
+      const batchConfig = getBatchConfig(frameId);
+      const mediaInfoPath = `/${batchConfig.mediaInfoDir}/${mediaItemName}.json`;
+      const response = await fetch(mediaInfoPath);
+      if (response.ok) {
+        const videoInfo = await response.json();
+        const fps = videoInfo.fps || 25;
+        // Update cache
+        setFpsCache(prev => ({ ...prev, [mediaItemName]: fps }));
+        return Math.round((frameNumber / fps) * 1000);
+      }
+    } catch (error) {
+      console.error(`Error loading FPS for ${mediaItemName}:`, error);
+    }
+
+    // Default to 25 FPS
+    const defaultFps = 25;
+    setFpsCache(prev => ({ ...prev, [mediaItemName]: defaultFps }));
+    return Math.round((frameNumber / defaultFps) * 1000);
+  };
+
+  // Component to display time in milliseconds
+  const FrameTimestamp = ({ frameId }) => {
+    const [timeMs, setTimeMs] = useState(null);
+
+    useEffect(() => {
+      calculateTimeMs(frameId).then(setTimeMs);
+    }, [frameId]);
+
+    if (timeMs === null) return null;
+
+    return (
+      <div style={{
+        fontSize: '10px',
+        color: '#ffa500',
+        fontWeight: 'bold',
+        marginTop: '2px'
+      }}>
+        ⏱️ {timeMs}ms
+      </div>
+    );
   };
 
   async function fetchSearchResults(query, imageFile = null) {
@@ -477,15 +561,36 @@ function App() {
 
       const result = await response.json();
 
-      // Update submission history
+      // Determine submission mode
+      let submissionMode = appMode.toUpperCase();
+      let submissionSource = "Search Results";
+      if (searchModeType === "temporal") {
+        submissionMode = "TRAKE";
+        submissionSource = "Temporal Search";
+      } else if (dresReview.items && dresReview.items.length > 0) {
+        submissionSource = "Browse Frames";
+      }
+
+      // Create detailed submission record
       const submissionRecord = {
+        id: Date.now(), // Unique ID for each submission
         timestamp: new Date().toISOString(),
+        timestampReadable: new Date().toLocaleString(),
         evaluation: dresEvaluation.evaluationName,
-        mode: searchModeType === "temporal" ? "TRAKE" : appMode.toUpperCase(),
+        evaluationId: dresEvaluation.selectedEvaluationId,
+        mode: submissionMode,
+        source: submissionSource,
         itemCount: answerSets.answerSets[0].answers.length,
-        status: 'success'
+        status: 'success',
+        username: dresConfig.username,
+        data: answerSets, // Store full submission data
+        result: result
       };
 
+      // Add to global submission history
+      setSubmissionHistory(prev => [submissionRecord, ...prev]);
+
+      // Update legacy submission state
       setDresSubmission(prev => ({
         ...prev,
         isSubmitting: false,
@@ -496,6 +601,24 @@ function App() {
       return { success: true, result };
     } catch (error) {
       console.error('DRES submission error:', error);
+
+      // Log failed submission
+      const failedRecord = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        timestampReadable: new Date().toLocaleString(),
+        evaluation: dresEvaluation.evaluationName,
+        evaluationId: dresEvaluation.selectedEvaluationId,
+        mode: searchModeType === "temporal" ? "TRAKE" : appMode.toUpperCase(),
+        source: dresReview.items?.length > 0 ? "Browse Frames" : "Search Results",
+        itemCount: answerSets.answerSets[0].answers.length,
+        status: 'failed',
+        username: dresConfig.username,
+        error: error.message,
+        data: answerSets
+      };
+
+      setSubmissionHistory(prev => [failedRecord, ...prev]);
 
       setDresSubmission(prev => ({
         ...prev,
@@ -1132,7 +1255,64 @@ function App() {
 
   // Confirm and submit from review modal
   const confirmDRESSubmission = async () => {
-    // Generate final submission JSON with edited answers
+    // Check if we have review items (browse frame submission)
+    if (dresReview.items && dresReview.items.length > 0) {
+      // Generate submission directly from review items
+      const submissionData = { answerSets: [{ answers: [] }] };
+
+      for (let answerIndex = 0; answerIndex < dresReview.items.length; answerIndex++) {
+        const item = dresReview.items[answerIndex];
+
+        // Get edited values or use originals
+        const editedVideoName = dresReview.editedAnswers[`${item.videoId}_videoName`] || item.videoName;
+        const editedTimeMs = dresReview.editedAnswers[`${item.videoId}_timeMs`] || item.timeMs;
+        const editedAnswer = dresReview.editedAnswers[item.videoId];
+
+        if (dresReview.mode === "qa") {
+          // QA mode: QA-answer-video-time(ms)
+          const finalAnswer = editedAnswer !== undefined ? editedAnswer : item.answer;
+          submissionData.answerSets[0].answers.push({
+            text: `QA-${finalAnswer}-${editedVideoName}-${editedTimeMs}`
+          });
+        } else if (dresReview.mode === "textual-kis") {
+          // KIS mode: mediaItemName with start/end time(ms)
+          submissionData.answerSets[0].answers.push({
+            mediaItemName: editedVideoName,
+            start: parseInt(editedTimeMs),
+            end: parseInt(editedTimeMs)
+          });
+        } else if (dresReview.mode === "trake") {
+          // TRAKE mode: TR-video-frameIDs
+          const editedFrames = dresReview.editedAnswers[`${item.videoId}_frames`] || item.frameIds;
+          const frameSequence = editedFrames.join(',');
+          submissionData.answerSets[0].answers.push({
+            text: `TR-${editedVideoName}-${frameSequence}`
+          });
+        }
+      }
+
+      if (submissionData.answerSets[0].answers.length === 0) {
+        alert("No data to submit!");
+        return;
+      }
+
+      // Close modal
+      setDresReview({ isOpen: false, items: [], mode: "", editedAnswers: {} });
+
+      // Submit to DRES
+      const result = await dresSubmitResults(submissionData);
+
+      if (result.success) {
+        alert(`✅ Successfully submitted ${submissionData.answerSets[0].answers.length} results to DRES!\nEvaluation: ${dresEvaluation.evaluationName}`);
+        // Clear selected browse frames after successful submission
+        setSelectedBrowseFrames(new Set());
+      } else {
+        alert(`❌ Submission failed: ${result.error}`);
+      }
+      return;
+    }
+
+    // Original flow: Generate submission JSON from selectedItems
     const submissionData = await generateDRESSubmissionJSON();
 
     if (!submissionData || submissionData.answerSets[0].answers.length === 0) {
@@ -1140,7 +1320,7 @@ function App() {
       return;
     }
 
-    // Apply edits for all modes
+    // Apply edits for all modes (this is for legacy flow)
     if (Object.keys(dresReview.editedAnswers).length > 0) {
       submissionData.answerSets[0].answers = submissionData.answerSets[0].answers.map((answer, answerIndex) => {
         const item = dresReview.items[answerIndex];
@@ -1187,6 +1367,97 @@ function App() {
       alert(`✅ Successfully submitted ${submissionData.answerSets[0].answers.length} results to DRES!\nEvaluation: ${dresEvaluation.evaluationName}`);
     } else {
       alert(`❌ Submission failed: ${result.error}`);
+    }
+  };
+
+  // Open manual DRES submission modal
+  const openManualSubmit = () => {
+    setDresManualSubmit({
+      isOpen: true,
+      mode: "textual-kis",
+      rawInput: ""
+    });
+  };
+
+  // Handle manual DRES submission
+  const handleManualDRESSubmit = async () => {
+    if (!dresManualSubmit.rawInput.trim()) {
+      alert("Please enter submission data!");
+      return;
+    }
+
+    const lines = dresManualSubmit.rawInput.trim().split('\n').filter(line => line.trim());
+    const answers = [];
+
+    try {
+      if (dresManualSubmit.mode === "textual-kis") {
+        // Format: videoName, startMs, endMs
+        lines.forEach(line => {
+          const parts = line.split(',').map(p => p.trim());
+          if (parts.length >= 3) {
+            answers.push({
+              mediaItemName: parts[0],
+              start: parseInt(parts[1]),
+              end: parseInt(parts[2])
+            });
+          }
+        });
+      } else if (dresManualSubmit.mode === "qa") {
+        // Format: QA-answer-video-timeMs
+        lines.forEach(line => {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("QA-")) {
+            answers.push({ text: trimmed });
+          } else {
+            // Allow input as: answer, video, timeMs
+            const parts = line.split(',').map(p => p.trim());
+            if (parts.length >= 3) {
+              answers.push({ text: `QA-${parts[0]}-${parts[1]}-${parts[2]}` });
+            }
+          }
+        });
+      } else if (dresManualSubmit.mode === "trake") {
+        // Format: TR-video-frameId1,frameId2,frameId3
+        lines.forEach(line => {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("TR-")) {
+            answers.push({ text: trimmed });
+          } else {
+            // Allow input as: video, frameId1, frameId2, ...
+            const parts = line.split(',').map(p => p.trim());
+            if (parts.length >= 2) {
+              const videoName = parts[0];
+              const frameIds = parts.slice(1).join(',');
+              answers.push({ text: `TR-${videoName}-${frameIds}` });
+            }
+          }
+        });
+      }
+
+      if (answers.length === 0) {
+        alert("No valid submission data found!");
+        return;
+      }
+
+      const submissionData = {
+        answerSets: [{ answers }]
+      };
+
+      setDresSubmission(prev => ({ ...prev, isSubmitting: true }));
+
+      const result = await dresSubmitResults(submissionData);
+
+      setDresSubmission(prev => ({ ...prev, isSubmitting: false }));
+
+      if (result.success) {
+        alert(`✅ Successfully submitted ${answers.length} results to DRES!\nEvaluation: ${dresEvaluation.evaluationName}`);
+        setDresManualSubmit({ isOpen: false, mode: "textual-kis", rawInput: "" });
+      } else {
+        alert(`❌ Submission failed: ${result.error}`);
+      }
+    } catch (error) {
+      setDresSubmission(prev => ({ ...prev, isSubmitting: false }));
+      alert(`❌ Error processing submission: ${error.message}`);
     }
   };
 
@@ -1645,8 +1916,54 @@ function App() {
                 <div style={{ fontSize: '11px', color: '#888', marginBottom: '8px' }}>
                   User: {dresConfig.username}
                 </div>
-                <div style={{ fontSize: '10px', color: '#666', wordBreak: 'break-all' }}>
-                  Session: {dresConfig.sessionId.substring(0, 20)}...
+                <div style={{
+                  fontSize: '10px',
+                  color: '#666',
+                  wordBreak: 'break-all',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '8px'
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ marginBottom: '4px', fontWeight: 'bold', color: '#888' }}>Session ID:</div>
+                    <div style={{
+                      padding: '6px 8px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      borderRadius: '4px',
+                      fontFamily: 'monospace',
+                      fontSize: '9px',
+                      border: '1px solid rgba(255, 255, 255, 0.1)'
+                    }}>
+                      {dresConfig.sessionId}
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      navigator.clipboard.writeText(dresConfig.sessionId);
+                      // Show temporary feedback
+                      const btn = e.target;
+                      const originalText = btn.textContent;
+                      btn.textContent = '✓';
+                      btn.style.background = '#28a745';
+                      setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.style.background = '#007bff';
+                      }, 1000);
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      background: '#007bff',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      marginTop: '20px'
+                    }}
+                  >
+                    📋 Copy
+                  </button>
                 </div>
 
                 {/* Evaluation Selection */}
@@ -1713,6 +2030,46 @@ function App() {
                   }}>
                     ✅ Last: {dresSubmission.lastSubmission.itemCount} items ({dresSubmission.lastSubmission.mode})
                   </div>
+                )}
+
+                {/* Submission History Button */}
+                <button
+                  onClick={() => setHistoryModalOpen(true)}
+                  style={{
+                    width: '100%',
+                    marginTop: '10px',
+                    padding: '8px',
+                    background: '#17a2b8',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  📜 Submission History ({submissionHistory.length})
+                </button>
+
+                {/* Manual Submission Button */}
+                {dresEvaluation.selectedEvaluationId && (
+                  <button
+                    onClick={openManualSubmit}
+                    style={{
+                      width: '100%',
+                      marginTop: '10px',
+                      padding: '8px',
+                      background: '#ff9800',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    ✍️ Manual Submit
+                  </button>
                 )}
               </div>
             )}
@@ -2250,7 +2607,10 @@ function App() {
                           onChange={() => toggleItemSelection(item.videoId)}
                           title="Select for CSV export"
                         />
-                        <span className="card-caption-new">{item.caption}</span>
+                        <div style={{ flex: 1 }}>
+                          <span className="card-caption-new">{item.caption}</span>
+                          <FrameTimestamp frameId={item.videoId} />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -2302,6 +2662,7 @@ function App() {
                                   <div className="event-number">E{eventIdx + 1}</div>
                                   <div className="event-frame-id">{frameObj.id}</div>
                                   <div className="event-frame-score">Score: {frameObj.score.toFixed(3)}</div>
+                                  <FrameTimestamp frameId={frameObj.id} />
                                 </div>
                               </div>
                               {eventIdx < item.videoTimeline.frames.length - 1 && (
@@ -2443,7 +2804,24 @@ function App() {
                   <>
                     <div className="browse-frames-grid">
                       {currentBrowseFrames.map((frame, index) => (
-                        <div key={index} className="browse-frame-item">
+                        <div key={index} className={`browse-frame-item ${selectedBrowseFrames.has(frame.videoId) ? 'selected' : ''}`}>
+                          <input
+                            type="checkbox"
+                            className="browse-frame-checkbox"
+                            checked={selectedBrowseFrames.has(frame.videoId)}
+                            onChange={() => {
+                              setSelectedBrowseFrames(prev => {
+                                const newSet = new Set(prev);
+                                if (newSet.has(frame.videoId)) {
+                                  newSet.delete(frame.videoId);
+                                } else {
+                                  newSet.add(frame.videoId);
+                                }
+                                return newSet;
+                              });
+                            }}
+                            title="Select for submission"
+                          />
                           <img
                             src={frame.image}
                             alt={`Frame ${frame.timestamp}`}
@@ -2456,6 +2834,7 @@ function App() {
                           />
                           <div className="browse-frame-info">
                             <div className="browse-frame-filename">{frame.videoId}</div>
+                            <FrameTimestamp frameId={frame.videoId} />
                             <div className="browse-zoom-hint">🔍 Click to zoom</div>
                           </div>
                           <div
@@ -2492,6 +2871,84 @@ function App() {
                           className="browse-page-btn"
                         >
                           Next →
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Browse Frame Submission Section */}
+                    {selectedBrowseFrames.size > 0 && dresConfig.isAuthenticated && dresEvaluation.selectedEvaluationId && (
+                      <div style={{
+                        marginTop: '16px',
+                        padding: '12px',
+                        background: 'rgba(40, 167, 69, 0.1)',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(40, 167, 69, 0.3)'
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: '8px'
+                        }}>
+                          <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#28a745' }}>
+                            📋 Selected: {selectedBrowseFrames.size} frame(s)
+                          </div>
+                          <button
+                            onClick={() => setSelectedBrowseFrames(new Set())}
+                            style={{
+                              padding: '4px 8px',
+                              background: '#dc3545',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => {
+                            // Open review modal with selected browse frames
+                            const items = Array.from(selectedBrowseFrames).map(frameId => {
+                              const parts = frameId.split('_');
+                              const videoName = `${parts[0]}_${parts[1]}`;
+                              const frameNumber = parseInt(parts[2]);
+                              // Calculate time with default FPS 25 (will be updated with actual FPS in modal)
+                              const timeMs = Math.round((frameNumber / 25) * 1000);
+
+                              return {
+                                videoId: frameId,
+                                videoName: videoName,
+                                frameId: frameNumber,
+                                timeMs: timeMs,
+                                answer: "",
+                                canEditAnswer: false
+                              };
+                            });
+
+                            setDresReview({
+                              isOpen: true,
+                              items: items,
+                              mode: "textual-kis", // Default to KIS mode
+                              editedAnswers: {}
+                            });
+                          }}
+                          disabled={dresSubmission.isSubmitting}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            background: '#28a745',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '13px',
+                            fontWeight: 'bold',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          🏆 Submit Selected to DRES
                         </button>
                       </div>
                     )}
@@ -3186,6 +3643,297 @@ function App() {
                 )}
               >
                 Confirm & Submit to DRES
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DRES Manual Submission Modal */}
+      {dresManualSubmit.isOpen && (
+        <div className="modal-overlay" onClick={() => setDresManualSubmit(prev => ({ ...prev, isOpen: false }))}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Manual DRES Submission</h3>
+              <button
+                className="modal-close-btn"
+                onClick={() => setDresManualSubmit(prev => ({ ...prev, isOpen: false }))}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="submission-info">
+                <div className="info-item">
+                  <span className="info-label">Evaluation:</span>
+                  <span className="info-value">{dresEvaluation.evaluationName}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">Mode:</span>
+                  <select
+                    value={dresManualSubmit.mode}
+                    onChange={(e) => setDresManualSubmit(prev => ({ ...prev, mode: e.target.value }))}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: 'white',
+                      fontSize: '14px',
+                      fontWeight: '700'
+                    }}
+                  >
+                    <option value="textual-kis">TEXTUAL-KIS</option>
+                    <option value="qa">QA</option>
+                    <option value="trake">TRAKE</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '16px' }}>
+                <label style={{ fontWeight: '600', marginBottom: '8px', display: 'block', color: '#333' }}>
+                  Enter Submission Data:
+                </label>
+                <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
+                  {dresManualSubmit.mode === 'textual-kis' && (
+                    <>
+                      <strong>Format (one per line):</strong><br/>
+                      videoName, startMs, endMs<br/>
+                      <em>Example: K09_V013, 1000, 2000</em>
+                    </>
+                  )}
+                  {dresManualSubmit.mode === 'qa' && (
+                    <>
+                      <strong>Format (one per line):</strong><br/>
+                      QA-answer-video-timeMs  OR  answer, video, timeMs<br/>
+                      <em>Example: QA-dog-K09_V013-1500  OR  dog, K09_V013, 1500</em>
+                    </>
+                  )}
+                  {dresManualSubmit.mode === 'trake' && (
+                    <>
+                      <strong>Format (one per line):</strong><br/>
+                      TR-video-frameId1,frameId2,...  OR  video, frameId1, frameId2, ...<br/>
+                      <em>Example: TR-L27_V014-8681,10184  OR  L27_V014, 8681, 10184</em>
+                    </>
+                  )}
+                </div>
+                <textarea
+                  value={dresManualSubmit.rawInput}
+                  onChange={(e) => setDresManualSubmit(prev => ({ ...prev, rawInput: e.target.value }))}
+                  placeholder={
+                    dresManualSubmit.mode === 'textual-kis' ? 'K09_V013, 1000, 2000\nL21_V005, 5000, 6000' :
+                    dresManualSubmit.mode === 'qa' ? 'dog, K09_V013, 1500\ncat, L21_V005, 3000' :
+                    'L27_V014, 8681, 10184\nK09_V013, 1234, 5678'
+                  }
+                  rows={12}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    border: '2px solid #d0d0d0',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    fontFamily: "'Courier New', monospace",
+                    resize: 'vertical'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button
+                className="modal-btn cancel"
+                onClick={() => setDresManualSubmit(prev => ({ ...prev, isOpen: false }))}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn confirm"
+                onClick={handleManualDRESSubmit}
+                disabled={!dresManualSubmit.rawInput.trim() || dresSubmission.isSubmitting}
+              >
+                {dresSubmission.isSubmitting ? '⏳ Submitting...' : '🏆 Submit to DRES'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DRES Submission History Modal */}
+      {historyModalOpen && (
+        <div className="modal-overlay" onClick={() => setHistoryModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', maxHeight: '80vh' }}>
+            <div className="modal-header">
+              <h3>📜 Submission History ({submissionHistory.length})</h3>
+              <button
+                className="modal-close-btn"
+                onClick={() => setHistoryModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+              {submissionHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>📭</div>
+                  <p>No submission history yet</p>
+                </div>
+              ) : (
+                <div>
+                  {/* Clear History Button */}
+                  <div style={{ marginBottom: '16px', textAlign: 'right' }}>
+                    <button
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to clear all submission history?')) {
+                          setSubmissionHistory([]);
+                        }
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#dc3545',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '12px'
+                      }}
+                    >
+                      🗑️ Clear History
+                    </button>
+                  </div>
+
+                  {/* History List */}
+                  {submissionHistory.map((record, index) => (
+                    <div
+                      key={record.id}
+                      style={{
+                        marginBottom: '12px',
+                        padding: '12px',
+                        background: record.status === 'success' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(220, 53, 69, 0.1)',
+                        border: `1px solid ${record.status === 'success' ? 'rgba(76, 175, 80, 0.3)' : 'rgba(220, 53, 69, 0.3)'}`,
+                        borderRadius: '6px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#333', marginBottom: '4px' }}>
+                            {record.status === 'success' ? '✅' : '❌'} Submission #{submissionHistory.length - index}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#666' }}>
+                            {record.timestampReadable}
+                          </div>
+                        </div>
+                        <div style={{
+                          padding: '4px 8px',
+                          background: record.status === 'success' ? '#28a745' : '#dc3545',
+                          color: 'white',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: 'bold'
+                        }}>
+                          {record.status.toUpperCase()}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px' }}>
+                        <div>
+                          <strong>Mode:</strong> {record.mode}
+                        </div>
+                        <div>
+                          <strong>Source:</strong> {record.source}
+                        </div>
+                        <div>
+                          <strong>Items:</strong> {record.itemCount}
+                        </div>
+                        <div>
+                          <strong>User:</strong> {record.username}
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <strong>Evaluation:</strong> {record.evaluation}
+                        </div>
+                        {record.error && (
+                          <div style={{ gridColumn: '1 / -1', color: '#dc3545' }}>
+                            <strong>Error:</strong> {record.error}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Show submission data details */}
+                      <details style={{ marginTop: '8px' }}>
+                        <summary style={{ cursor: 'pointer', fontSize: '12px', color: '#007bff', fontWeight: 'bold' }}>
+                          View Submission Data
+                        </summary>
+                        <pre style={{
+                          marginTop: '8px',
+                          padding: '8px',
+                          background: 'rgba(0, 0, 0, 0.05)',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          maxHeight: '200px',
+                          overflowY: 'auto',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-all'
+                        }}>
+                          {JSON.stringify(record.data, null, 2)}
+                        </pre>
+                      </details>
+
+                      {/* Export buttons */}
+                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={() => {
+                            const dataStr = JSON.stringify(record.data, null, 2);
+                            const blob = new Blob([dataStr], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `submission_${record.id}.json`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                          style={{
+                            padding: '4px 8px',
+                            background: '#007bff',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '10px'
+                          }}
+                        >
+                          📥 Export JSON
+                        </button>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(JSON.stringify(record.data, null, 2));
+                            alert('Copied to clipboard!');
+                          }}
+                          style={{
+                            padding: '4px 8px',
+                            background: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '10px'
+                          }}
+                        >
+                          📋 Copy
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <button
+                className="modal-btn cancel"
+                onClick={() => setHistoryModalOpen(false)}
+              >
+                Close
               </button>
             </div>
           </div>

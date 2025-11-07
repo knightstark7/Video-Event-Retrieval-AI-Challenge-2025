@@ -1437,9 +1437,6 @@ body {
   overflow-wrap: break-word;
 }
 
-/* New card header design */
-
-
 .card-caption-new {
   color: #e6e6e6;
   font-size: 12px;
@@ -1447,7 +1444,6 @@ body {
   line-height: 1.4;
   word-wrap: break-word;
   overflow-wrap: break-word;
-  flex: 1;
   text-align: left;
   padding: 4px 8px;
   background: rgba(255, 255, 255, 0.05);
@@ -2441,6 +2437,23 @@ body {
   border-color: #cbb3f9;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(203, 179, 249, 0.2);
+}
+
+.browse-frame-item.selected {
+  border-color: #28a745;
+  background: rgba(40, 167, 69, 0.1);
+  box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.3);
+}
+
+.browse-frame-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  z-index: 10;
+  accent-color: #28a745;
 }
 
 .browse-frame-image {
