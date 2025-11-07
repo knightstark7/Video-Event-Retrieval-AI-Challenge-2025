@@ -1864,7 +1864,7 @@ function App() {
                 </div>
               )}
 
-              {(searchMode === "caption" || searchMode === "hybrid") && (
+              {(searchMode === "caption" || searchMode === "hybrid" || searchMode === "clip+caption") && (
                 <div className="rerank-section">
                   <label className="rerank-label">
                     <input
