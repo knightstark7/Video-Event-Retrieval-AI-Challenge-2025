@@ -1541,6 +1541,54 @@ function App() {
     setImagePreview(null);
   };
 
+  // Add paste event listener for image search
+  useEffect(() => {
+    const handlePaste = (event) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            handleImageUpload(file);
+            // Switch to image search mode if not already
+            if (searchType !== 'image') {
+              setSearchType('image');
+            }
+            event.preventDefault();
+            // Show notification
+            const notification = document.createElement('div');
+            notification.textContent = '✅ Image pasted successfully!';
+            notification.style.cssText = `
+              position: fixed;
+              top: 20px;
+              right: 20px;
+              background: #28a745;
+              color: white;
+              padding: 12px 20px;
+              border-radius: 6px;
+              font-weight: bold;
+              z-index: 10000;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            `;
+            document.body.appendChild(notification);
+            setTimeout(() => {
+              notification.remove();
+            }, 3000);
+          }
+          break;
+        }
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => {
+      document.removeEventListener('paste', handlePaste);
+    };
+  }, [searchType]);
+
   // Video Filter Functions
   const getUniqueVideos = (results) => {
     const videos = new Set();
@@ -3559,10 +3607,29 @@ function App() {
                 <div className="search-image-preview">
                   <img src={imagePreview} alt="Search query" />
                   <span>Image uploaded - Click search to find similar images</span>
+                  <button
+                    onClick={clearImage}
+                    style={{
+                      marginTop: '8px',
+                      padding: '6px 12px',
+                      background: '#dc3545',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    🗑️ Clear Image
+                  </button>
                 </div>
               ) : (
                 <div className="no-image-placeholder">
-                  <span>No image selected - Drag and drop an image in settings</span>
+                  <div style={{ fontSize: '16px', marginBottom: '8px' }}>📸 No image selected</div>
+                  <div style={{ fontSize: '13px', color: '#ccc' }}>
+                    <div>• Drag and drop an image in settings, or</div>
+                    <div style={{ marginTop: '4px' }}>• <strong style={{ color: '#fff' }}>Copy an image and press Ctrl+V to paste</strong></div>
+                  </div>
                 </div>
               )}
             </div>
