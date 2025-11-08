@@ -3103,24 +3103,44 @@ function App() {
                           </button>
                         </div>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             // Open review modal with selected browse frames
-                            const items = Array.from(selectedBrowseFrames).map(frameId => {
-                              const parts = frameId.split('_');
-                              const videoName = `${parts[0]}_${parts[1]}`;
-                              const frameNumber = parseInt(parts[2]);
-                              // Calculate time with default FPS 25 (will be updated with actual FPS in modal)
-                              const timeMs = Math.round((frameNumber / 25) * 1000);
+                            // Use async to fetch actual FPS for each frame
+                            const items = await Promise.all(
+                              Array.from(selectedBrowseFrames).map(async (frameId) => {
+                                const parts = frameId.split('_');
+                                const batch = parts[0];
+                                const videoNum = parts[1];
+                                const frameNumber = parseInt(parts[2]);
+                                const videoName = `${batch}_${videoNum}`;
 
-                              return {
-                                videoId: frameId,
-                                videoName: videoName,
-                                frameId: frameNumber,
-                                timeMs: timeMs,
-                                answer: "",
-                                canEditAnswer: false
-                              };
-                            });
+                                // Fetch actual FPS from media-info (same logic as submission)
+                                let fps = 25; // Default
+                                try {
+                                  const batchConfig = getBatchConfig(frameId);
+                                  const mediaInfoPath = `/${batchConfig.mediaInfoDir}/${videoName}.json`;
+                                  const response = await fetch(mediaInfoPath);
+                                  if (response.ok) {
+                                    const videoInfo = await response.json();
+                                    fps = videoInfo.fps || 25;
+                                  }
+                                } catch (error) {
+                                  console.error(`Error loading FPS for ${videoName}:`, error);
+                                }
+
+                                // Calculate time using actual FPS
+                                const timeMs = Math.round((frameNumber / fps) * 1000);
+
+                                return {
+                                  videoId: frameId,
+                                  videoName: videoName,
+                                  frameId: frameNumber,
+                                  timeMs: timeMs,
+                                  answer: "",
+                                  canEditAnswer: false
+                                };
+                              })
+                            );
 
                             setDresReview({
                               isOpen: true,
