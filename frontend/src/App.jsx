@@ -3974,42 +3974,42 @@ function App() {
                         borderRadius: '6px'
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#333', marginBottom: '4px' }}>
+                          <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#000', marginBottom: '6px' }}>
                             {record.status === 'success' ? '✅' : '❌'} Submission #{submissionHistory.length - index}
                           </div>
-                          <div style={{ fontSize: '11px', color: '#666' }}>
+                          <div style={{ fontSize: '13px', color: '#444', fontWeight: '500' }}>
                             {record.timestampReadable}
                           </div>
                         </div>
                         <div style={{
-                          padding: '4px 8px',
+                          padding: '6px 12px',
                           background: record.status === 'success' ? '#28a745' : '#dc3545',
                           color: 'white',
                           borderRadius: '4px',
-                          fontSize: '10px',
+                          fontSize: '12px',
                           fontWeight: 'bold'
                         }}>
                           {record.status.toUpperCase()}
                         </div>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '14px', color: '#222' }}>
                         <div>
-                          <strong>Mode:</strong> {record.mode}
+                          <strong style={{ color: '#000' }}>Mode:</strong> {record.mode}
                         </div>
                         <div>
-                          <strong>Source:</strong> {record.source}
+                          <strong style={{ color: '#000' }}>Source:</strong> {record.source}
                         </div>
                         <div>
-                          <strong>Items:</strong> {record.itemCount}
+                          <strong style={{ color: '#000' }}>Items:</strong> {record.itemCount}
                         </div>
                         <div>
-                          <strong>User:</strong> {record.username}
+                          <strong style={{ color: '#000' }}>User:</strong> {record.username}
                         </div>
                         <div style={{ gridColumn: '1 / -1' }}>
-                          <strong>Evaluation:</strong> {record.evaluation}
+                          <strong style={{ color: '#000' }}>Evaluation:</strong> {record.evaluation}
                         </div>
                         {record.error && (
                           <div style={{ gridColumn: '1 / -1', color: '#dc3545' }}>
@@ -4019,27 +4019,40 @@ function App() {
                       </div>
 
                       {/* Show submission data details */}
-                      <details style={{ marginTop: '8px' }}>
-                        <summary style={{ cursor: 'pointer', fontSize: '12px', color: '#007bff', fontWeight: 'bold' }}>
-                          View Submission Data
+                      <details style={{ marginTop: '12px' }}>
+                        <summary style={{
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          color: '#007bff',
+                          fontWeight: 'bold',
+                          padding: '8px',
+                          background: 'rgba(0, 123, 255, 0.1)',
+                          borderRadius: '4px',
+                          userSelect: 'none'
+                        }}>
+                          🔍 View Submission Data
                         </summary>
                         <pre style={{
                           marginTop: '8px',
-                          padding: '8px',
-                          background: 'rgba(0, 0, 0, 0.05)',
-                          borderRadius: '4px',
-                          fontSize: '10px',
-                          maxHeight: '200px',
+                          padding: '12px',
+                          background: '#f8f9fa',
+                          border: '1px solid #dee2e6',
+                          borderRadius: '6px',
+                          fontSize: '13px',
+                          maxHeight: '300px',
                           overflowY: 'auto',
                           whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-all'
+                          wordBreak: 'break-all',
+                          color: '#212529',
+                          lineHeight: '1.6',
+                          fontFamily: '"Courier New", monospace'
                         }}>
                           {JSON.stringify(record.data, null, 2)}
                         </pre>
                       </details>
 
                       {/* Export buttons */}
-                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                      <div style={{ marginTop: '12px', display: 'flex', gap: '10px' }}>
                         <button
                           onClick={() => {
                             const dataStr = JSON.stringify(record.data, null, 2);
@@ -4052,13 +4065,14 @@ function App() {
                             URL.revokeObjectURL(url);
                           }}
                           style={{
-                            padding: '4px 8px',
+                            padding: '8px 14px',
                             background: '#007bff',
                             color: 'white',
                             border: 'none',
                             borderRadius: '4px',
                             cursor: 'pointer',
-                            fontSize: '10px'
+                            fontSize: '13px',
+                            fontWeight: '600'
                           }}
                         >
                           📥 Export JSON
@@ -4069,13 +4083,14 @@ function App() {
                             alert('Copied to clipboard!');
                           }}
                           style={{
-                            padding: '4px 8px',
+                            padding: '8px 14px',
                             background: '#6c757d',
                             color: 'white',
                             border: 'none',
                             borderRadius: '4px',
                             cursor: 'pointer',
-                            fontSize: '10px'
+                            fontSize: '13px',
+                            fontWeight: '600'
                           }}
                         >
                           📋 Copy
